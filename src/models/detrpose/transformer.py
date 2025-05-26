@@ -327,6 +327,7 @@ class TransformerDecoder(nn.Module):
                 up,
                 reg_scale,
                 reg_max,
+                project,
                 # attention 
                 attn_mask=None,
                 # for memory
@@ -341,8 +342,6 @@ class TransformerDecoder(nn.Module):
         dec_out_logits = []
         dec_out_refs = []
         dec_out_pred_corners = []
-
-        project = weighting_function(reg_max, up, reg_scale)
 
         for layer_id, layer in enumerate(self.layers):
             refpoint_pose_input = refpoint_pose[:, :, None] 
@@ -600,7 +599,9 @@ class Transformer(nn.Module):
         valid_mask = ((anchors > 0.01) & (anchors < 0.99)).all(-1, keepdim=True)
         anchors = torch.log(anchors / (1 - anchors)) # unsigmoid
         return anchors, ~valid_mask
-
+        
+    def convert_to_deploy(self):
+        self.project = weighting_function(self.reg_max, self.up, self.reg_scale, deploy=True)
 
     def forward(self, feats, targets, samples=None):
         """
@@ -681,6 +682,11 @@ class Transformer(nn.Module):
         # preprocess memory for MSDeformableLineAttention
         value = memory.unflatten(2, (self.nhead, -1)) # (bs, \sum{hxw}, n_heads, d_model//n_heads)
         value = value.permute(0, 2, 3, 1).flatten(0, 1).split(split_sizes, dim=-1)
+        
+        if not hasattr(self, "project"):
+            project = weighting_function(self.reg_max, self.up, self.reg_scale)
+        else:
+            project = self.project
 
         (
             out_poses, 

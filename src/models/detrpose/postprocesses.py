@@ -21,7 +21,7 @@ class PostProcess(nn.Module):
         scores = topk_values
 
         # keypoints
-        topk_keypoints = topk_indexes // out_logits.shape[2]
+        topk_keypoints = (topk_indexes.float() // out_logits.shape[2]).long()
         labels = topk_indexes % out_logits.shape[2]
         keypoints = torch.gather(out_keypoints, 1, topk_keypoints.unsqueeze(-1).repeat(1, 1, self.num_body_points*2))
         img_h, img_w = target_sizes.unbind(1)
@@ -35,11 +35,6 @@ class PostProcess(nn.Module):
         keypoints_res = torch.cat(
             [keypoints_res, torch.ones_like(keypoints_res[..., 0:1])], 
             dim=-1).flatten(-2)
-
-        # keypoints_res = torch.zeros_like(keypoints)
-        # keypoints_res[..., 0::3] = keypoints[..., 0::2]
-        # keypoints_res[..., 1::3] = keypoints[..., 1::2]
-        # keypoints_res[..., 2::3] = torch.ones_like(keypoints[..., 0:1])
 
         results = [{'scores': s, 'labels': l, 'keypoints': k} for s, l, k in zip(scores, labels, keypoints_res)]
         return results

@@ -21,7 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Argument Parser Example')
     parser.add_argument('--infer_dir',
                         type=str,
-                        default='./data/wireframe_processed/val2017',
+                        default='./data/COCO2017/val2017',
                         help="Directory for images to perform inference on.")
     parser.add_argument("--engine_dir",
                         type=str,

@@ -451,6 +451,8 @@ class Trainer(object):
             else:
                 print(f'✅ Successfully initilized the backbone and encoder using {model_name} weights ✅')
 
+            missing_keys, unexpected_keys = self.ema.module.load_state_dict(new_state_dict, strict=False)
+
         except (Exception, KeyboardInterrupt) as e:
             if safe_get_rank() == 0:
                 print(f"{str(e)}")

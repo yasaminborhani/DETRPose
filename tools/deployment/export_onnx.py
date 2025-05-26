@@ -17,7 +17,8 @@ import torch.nn as nn
 
 def main(args, ):
     """main
-    """cfg = LazyConfig.load(args.config_file)
+    """
+    cfg = LazyConfig.load(args.config_file)
     
     if hasattr(cfg.model.backbone, 'pretrained'):
         cfg.model.backbone.pretrained = False
@@ -75,9 +76,13 @@ def main(args, ):
         (data, size),
         output_file,
         input_names=['images', 'orig_target_sizes'],
-        output_names=['lines', 'scores'],
+        output_names=['keypoints', 'scores', 'labels'],
         dynamic_axes=dynamic_axes,
         opset_version=16,
+        dynamo=True,
+        external_data=False,
+        # verify=True,
+        # report=True,
         verbose=False,
         do_constant_folding=True,
     )
@@ -103,7 +108,7 @@ if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', '-c', default='configs/linea/linea_l.py', type=str, )
+    parser.add_argument('--config_file', '-c', default='configs/linea/linea_l.py', type=str, )
     parser.add_argument('--resume', '-r', type=str, )
     parser.add_argument('--check',  action='store_true', default=True,)
     parser.add_argument('--simplify',  action='store_true', default=True,)
