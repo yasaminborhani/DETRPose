@@ -1,4 +1,6 @@
 onnxruntime
+onnxscript
+onnxsim
 tensorrt
 pycuda
 tqdm
