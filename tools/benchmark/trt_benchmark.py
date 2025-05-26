@@ -25,7 +25,7 @@ def parse_args():
                         help="Directory for images to perform inference on.")
     parser.add_argument("--engine_dir",
                         type=str,
-                        default='trt_engine',
+                        default='trt_engines',
                         help="Directory containing model engine files.")
     parser.add_argument('--busy',
                         action='store_true',
