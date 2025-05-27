@@ -36,7 +36,7 @@ def speed(model, data, n):
     times = []
     for i in tqdm(range(n), desc="Running Inference", unit="iteration"):
         blob = data[i]
-        samples, target_sizes = blob['images'].unsqueeze(0), blob['orig_target_sizes'].unsqueeze(0)
+        samples, target_sizes = blob['images'].unsqueeze(0), blob['orig_target_sizes']
         torch.cuda.synchronize()
         t_ = time.perf_counter()
         _ = model(samples, target_sizes)

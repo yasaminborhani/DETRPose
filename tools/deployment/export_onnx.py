@@ -67,7 +67,7 @@ def main(args, ):
 
     outout_folder = 'onnx_engines'
     os.makedirs(outout_folder , exist_ok=True)
-    output_file = args.config.split('/')[-1].replace('py', 'onnx')
+    output_file = args.config_file.split('/')[-1].replace('py', 'onnx')
     output_file = f'{outout_folder}/{output_file}'
     # args.resume.replace('.pth', '.onnx') if args.resume else 'model.onnx'
 
@@ -81,8 +81,8 @@ def main(args, ):
         opset_version=16,
         dynamo=True,
         external_data=False,
-        # verify=True,
-        # report=True,
+        verify=True,
+        report=True,
         verbose=False,
         do_constant_folding=True,
     )

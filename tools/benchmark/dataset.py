@@ -75,8 +75,8 @@ class Dataset(data.Dataset):
 
         blob = {
             'images': im,
-            'im_shape': torch.tensor([self.size, self.size]).to(im.device),
-            'scale_factor': torch.tensor([self.size / h, self.size / w]).to(im.device),
+            # 'im_shape': torch.tensor([self.size, self.size]).to(im.device),
+            # 'scale_factor': torch.tensor([self.size / h, self.size / w]).to(im.device),
             'orig_target_sizes': torch.tensor([w, h]).to(im.device),
         }
 

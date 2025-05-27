@@ -709,7 +709,8 @@ class Transformer(nn.Module):
                 up=self.up,
                 reg_max=self.reg_max,
                 reg_scale=self.reg_scale,
-                integral=self.integral
+                integral=self.integral,
+                project=project,
                 )
 
         out_poses = out_poses.flatten(-2)

@@ -2,8 +2,8 @@
 Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 """
 
-import tensorrt as trt
 import pycuda.driver as cuda
+import onnxruntime as ort
 from utils import TimeProfiler
 import numpy as np
 import os
@@ -21,7 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Argument Parser Example')
     parser.add_argument('--infer_dir',
                         type=str,
-                        default='./data/COCO2017/val2017',
+                        default='./data/COCO2017/val2017/',
                         help="Directory for images to perform inference on.")
     parser.add_argument("--session_dir",
                         type=str,
@@ -38,8 +38,11 @@ time_profile = TimeProfiler()
 time_profile_dataset = TimeProfiler()
 
 def warmup(session, blob, n):
+    for k in blob:
+        blob[k] = blob[k].cpu().numpy()
+    print(blob.keys())
     for _ in range(n):
-        _ = session(blob)
+        _ = session.run(output_names=None, input_feed=blob)
 
 def speed(session, blob, n, nonempty_process=False):
     times = []
@@ -48,11 +51,9 @@ def speed(session, blob, n, nonempty_process=False):
         time_profile.reset()
         with time_profile_dataset:
             img = blob[i]
-            if img['images'] is not None:
-                img['image'] = img['input'] = img['images'].unsqueeze(0).numpy()
-            else:
-                img['images'] = img['input'] = img['image'].unsqueeze(0).numpy()
-            img['orig_target_sizes'] = img['orig_target_sizes'].numpy() 
+            img['images'] = img['images'].unsqueeze(0)#.numpy()
+            for k in img:
+                img[k] = img[k].cpu().numpy() 
         with time_profile:
             _ = session.run(output_names=None, input_feed=img)
         times.append(time_profile.total)
@@ -67,35 +68,35 @@ def speed(session, blob, n, nonempty_process=False):
 
 def main():
     FLAGS = parse_args()
-    dataset = Dataset(FLAGS.session_dir)
+    dataset = Dataset(FLAGS.infer_dir)
     im = torch.ones(1, 3, 640, 640).cuda()
     blob = {
-            'image': im,
+            # 'image': im,
             'images': im,
-            'input': im,
-            'im_shape': torch.tensor([640, 640]).to(im.device),
-            'scale_factor': torch.tensor([1, 1]).to(im.device),
+            # 'input': im,
+            # 'im_shape': torch.tensor([640, 640]).to(im.device),
+            # 'scale_factor': torch.tensor([1, 1]).to(im.device),
             'orig_target_sizes': torch.tensor([[640, 640]]).to(im.device),
         }
 
-    engine_files = glob.glob(os.path.join(FLAGS.session_dir, "*.onnx"))
+    session_files = glob.glob(os.path.join(FLAGS.session_dir, "*.onnx"))
     results = []
 
-    for engine_file in engine_files:
-        print(f"Testing engine: {engine_file}")
+    for session_file in session_files:
+        print(f"Testing engine: {session_file}")
         # Load the ONNX model
-        sess = ort.InferenceSession(args.onnx)
-        print(f"Using device: {ort.get_device()}")
+        sess = ort.InferenceSession(session_file)
+        print(f"Using device: {ort.get_device(), ort.get_all_providers() }")
 
-        warmup(sess, blob, 400)
+        warmup(sess, blob, 4)
         t = []
         for _ in range(1):
             t.append(speed(sess, dataset, 1000, FLAGS.busy))
         avg_latency = 1000 * torch.tensor(t).mean()
-        results.append((engine_file, avg_latency))
-        print(f"Engine: {engine_file}, Latency: {avg_latency:.2f} ms")
+        results.append((session_file, avg_latency))
+        print(f"Engine: {session_file}, Latency: {avg_latency:.2f} ms")
 
-        del model
+        del sess
         torch.cuda.empty_cache()
         time.sleep(1)
 

@@ -24,8 +24,7 @@ class PostProcess(nn.Module):
         topk_keypoints = (topk_indexes.float() // out_logits.shape[2]).long()
         labels = topk_indexes % out_logits.shape[2]
         keypoints = torch.gather(out_keypoints, 1, topk_keypoints.unsqueeze(-1).repeat(1, 1, self.num_body_points*2))
-        img_h, img_w = target_sizes.unbind(1)
-        keypoints = keypoints * torch.stack([img_w, img_h], dim=1).repeat(1, self.num_body_points)[:, None, :]
+        keypoints = keypoints * target_sizes.repeat(1, self.num_body_points)[:, None, :]
 
         keypoints_res = keypoints.unflatten(-1, (-1, 2))
         
