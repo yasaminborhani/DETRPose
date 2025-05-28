@@ -10,51 +10,46 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.transforms as T
+
 from PIL import Image, ImageDraw
+from copy import deepcopy
+from annotator import Annotator
+from annotator_crowdpose import AnnotatorCrowdpose
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from util.slconfig import SLConfig
+from src.core import LazyConfig, instantiate
 
-
-def draw(images, lines, scores):
-    for i, im in enumerate(images):
-        draw = ImageDraw.Draw(im)
-
-        scr = scores[i]
-        line = lines[i][scr > thrh]
-        scrs = scr[scr > thrh]
-
-        for j, l in enumerate(line):
-            draw.line(list(l), fill="red", width=5)
-            draw.text(
-                (l[0], l[1]),
-                text=f"{round(scrs[j].item(), 2)}",
-                fill="blue",
-            )
-
-    return images 
-
+annotators = {'COCO': Annotator, 'CrowdPose': AnnotatorCrowdpose}
 
 def process_image(model, device, file_path):
     im_pil = Image.open(file_path).convert("RGB")
     w, h = im_pil.size
     orig_size = torch.tensor([[w, h]]).to(device)
+    annotator = annotators[annotator_type](deepcopy(im_pil))
 
     transforms = T.Compose(
         [
             T.Resize((640, 640)),
             T.ToTensor(),
-            T.Normalize(mean=[0.538, 0.494, 0.453], std=[0.257, 0.263, 0.273]),
         ]
     )
     im_data = transforms(im_pil).unsqueeze(0).to(device)
 
     output = model(im_data, orig_size)
-    lines, scores = output
+    scores, labels, keypoints = output
 
-    result_images = draw([im_pil], lines, scores)
-    result_images[0].save(f"{OUTPUT_NAME}.jpg")
-    print(f"Image processing complete. Result saved as '{OUTPUT_NAME}.jpg'.")
+    scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+    for kpt, score in zip(keypoints, scores):
+        if score > thrh:
+            annotator.kpts(
+                kpt,
+                [h, w]
+                )
+    annotator.save(f"{OUTPUT_NAME}.jpg")
+
+    # result_images = draw([im_pil], lines, scores)
+    # result_images[0].save(f"{OUTPUT_NAME}.jpg")
+    # print(f"Image processing complete. Result saved as '{OUTPUT_NAME}.jpg'.")
 
 
 def process_video(model, device, file_path):
@@ -73,7 +68,6 @@ def process_video(model, device, file_path):
         [
             T.Resize((640, 640)),
             T.ToTensor(),
-            T.Normalize(mean=[0.538, 0.494, 0.453], std=[0.257, 0.263, 0.273]),
         ]
     )
 
@@ -90,16 +84,23 @@ def process_video(model, device, file_path):
         w, h = frame_pil.size
         orig_size = torch.tensor([[w, h]]).to(device)
 
+        annotator = annotators[annotator_type](deepcopy(frame_pil))
+
         im_data = transforms(frame_pil).unsqueeze(0).to(device)
 
         output = model(im_data, orig_size)
-        lines, scores = output
 
-        # Draw detections on the frame
-        result_images = draw([frame_pil], lines, scores)
+        scores, labels, keypoints = output
+        scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+        for kpt, score in zip(keypoints, scores):
+            if score > thrh:
+                annotator.kpts(
+                    kpt,
+                    [h, w]
+                    )
 
         # Convert back to OpenCV image
-        frame = cv2.cvtColor(np.array(result_images[0]), cv2.COLOR_RGB2BGR)
+        frame = annotator.result()
 
         # Write the frame
         out.write(frame)
@@ -133,28 +134,38 @@ def create(args, classname):
 
 def main(args):
     # Global variable
-    global OUTPUT_NAME, thrh 
+    global OUTPUT_NAME, thrh, annotator_type
 
     """Main function"""
-    cfg = SLConfig.fromfile(args.config)
+    cfg = LazyConfig.load(args.config)
 
-    if 'HGNetv2' in cfg.backbone:
-        cfg.pretrained = False
+    if hasattr(cfg.model.backbone, 'pretrained'):
+        cfg.model.backbone.pretrained = False
 
-    cfg.multiscale = None
+    model = instantiate(cfg.model)
+    postprocessor = instantiate(cfg.postprocessor)
 
-    # build model
-    model, postprocessor = create(cfg, 'modelname')
+    num_body_points = model.transformer.num_body_points 
+    if  num_body_points == 17:
+        annotator_type = 'COCO'
+    elif num_body_points == 14:
+        annotator_type = 'CrowdPose'
+    else:
+        raise Exception(f'Not implemented annotator for model with {num_body_points} keypoints')
 
     if args.resume:
-        checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
-        if "ema" in checkpoint:
-            state = checkpoint["ema"]["module"]
+        checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
+        if 'ema' in checkpoint:
+            state = checkpoint['ema']['module']
         else:
-            state = checkpoint["model"]
+            state = checkpoint['model']
+
+        # NOTE load train mode state -> convert to deploy mode
         model.load_state_dict(state)
+
     else:
-        raise AttributeError("Only support resume to load model.state_dict by now.")
+        # raise AttributeError('Only support resume to load model.state_dict by now.')
+        print('not load model.state_dict, use default init state dict...')
 
     class Model(nn.Module):
         def __init__(self):
@@ -169,7 +180,7 @@ def main(args):
 
     device = args.device
     model = Model().to(device)
-    thrh = 0.4 if args.thrh is None else args.thrh
+    thrh = 0.5 if args.thrh is None else args.thrh
 
     # Check if the input argumnet is a file or a folder
     file_path = args.input
@@ -181,10 +192,11 @@ def main(args):
         paths = list(glob.iglob(f"{folder_dir}/*.*"))
         for file_path in paths:
             OUTPUT_NAME = file_path.replace(f'{folder_dir}/', f'{output_dir}/').split('.')[0]
+            OUTPUT_NAME = f"{OUTPUT_NAME}_{annotator_type}"
             process_file(model, device, file_path)
     else:
         # Process a file
-        OUTPUT_NAME = 'torch_results'
+        OUTPUT_NAME = f'torch_results_{annotator_type}'
         process_file(model, device, file_path)
 
 

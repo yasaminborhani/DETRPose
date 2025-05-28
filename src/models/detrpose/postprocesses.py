@@ -29,7 +29,7 @@ class PostProcess(nn.Module):
         keypoints_res = keypoints.unflatten(-1, (-1, 2))
         
         if self.deploy_mode:
-            return scores, labels, keypoints
+            return scores, labels, keypoints_res
 
         keypoints_res = torch.cat(
             [keypoints_res, torch.ones_like(keypoints_res[..., 0:1])], 
