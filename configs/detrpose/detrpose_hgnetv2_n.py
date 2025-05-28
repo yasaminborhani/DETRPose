@@ -1,5 +1,5 @@
 from .include.detrpose_hgnetv2 import model, criterion, training_params, postprocessor
-from .include.dataset_crowdpose import dataset_train, dataset_val, dataset_test, evaluator
+from .include.dataset import dataset_train, dataset_val, dataset_test, evaluator 
 
 from src.core import LazyCall as L
 from src.nn.optimizer import ModelEMA 
@@ -7,9 +7,10 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_s_crowdpose"
-training_params.epochs = 176 # 156 + 20
+training_params.output_dir =  "output/detrpose_hgnetv2_n"
+training_params.epochs = 160 # 96 + 4 
 training_params.use_ema = True
+training_params.grad_accum_steps = 1
 
 ema = L(ModelEMA)(
     decay=0.9999,
@@ -22,7 +23,7 @@ optimizer = L(optim.AdamW)(
         cfg=[
                 {
                 'params': '^(?=.*backbone).*$',
-                'lr': 0.00001
+                'lr': 0.0001
                 },
             ],
         # model=model
@@ -38,22 +39,22 @@ lr_scheduler = L(optim.lr_scheduler.MultiStepLR)(
     gamma=0.1
     )
 
-model.transformer.num_body_points=14
-criterion.matcher.num_body_points=14
-criterion.num_body_points=14
-postprocessor.num_body_points=14
-
 model.backbone.name = 'B0'
 model.backbone.use_lab = True
-model.encoder.in_channels = [256, 512, 1024]
-model.encoder.depth_mult=0.34
-model.encoder.expansion=0.5
+model.backbone.return_idx = [2, 3]
+model.encoder.in_channels = [512, 1024]
+model.encoder.depth_mult = 0.34
+model.encoder.expansion = 0.5
+model.encoder.dim_feedforward = 512
 model.transformer.num_decoder_layers = 3
+model.transformer.num_feature_levels = 2
+model.transformer.dim_feedforward = 512
+model.transformer.dec_n_points= 6
 
 dataset_train.dataset.transforms.policy = {
     'name': 'stop_epoch',
     'ops': ['Mosaic', 'RandomCrop', 'RandomZoomOut'],
     'epoch': [5, 83, 156] # 156 / 2 + 5 = 83
     }
-dataset_train.collate_fn.base_size_repeat = 20
+dataset_train.collate_fn.base_size_repeat = None
 dataset_train.collate_fn.stop_epoch = 156

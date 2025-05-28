@@ -8,7 +8,7 @@ from src.misc.get_param_dicts import get_optim_params
 from torch import optim
 
 training_params.output_dir =  "output/detrpose_hgnetv2_x_crowdpose"
-training_params.epochs = 64 # 48 + 4
+training_params.epochs = 52 # 48 + 4
 training_params.use_ema = True
 
 ema = L(ModelEMA)(

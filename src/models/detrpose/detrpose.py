@@ -12,9 +12,7 @@
 
 from torch import nn
 
-
 class DETRPose(nn.Module):
-    """ This is the Cross-Attention Detector module that performs object detection """
     def __init__(
         self, 
         backbone, 

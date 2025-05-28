@@ -7,8 +7,8 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_l_crowdpose"
-training_params.epochs = 64 # 48 + 16
+training_params.output_dir =  "output/detrpose_hgnetv2_n_crowdpose"
+training_params.epochs = 284 # 264 + 20
 training_params.use_ema = True
 
 ema = L(ModelEMA)(
@@ -42,3 +42,23 @@ model.transformer.num_body_points=14
 criterion.matcher.num_body_points=14
 criterion.num_body_points=14
 postprocessor.num_body_points=14
+
+model.backbone.name = 'B0'
+model.backbone.use_lab = True
+model.backbone.return_idx = [2, 3]
+model.encoder.in_channels = [512, 1024]
+model.encoder.depth_mult = 0.34
+model.encoder.expansion = 0.5
+model.encoder.dim_feedforward = 512
+model.transformer.num_decoder_layers = 3
+model.transformer.num_feature_levels = 2
+model.transformer.dim_feedforward = 512
+model.transformer.dec_n_points= 6
+
+dataset_train.dataset.transforms.policy = {
+    'name': 'stop_epoch',
+    'ops': ['Mosaic', 'RandomCrop', 'RandomZoomOut'],
+    'epoch': [5, 137, 264] # 264 / 2 + 5 = 137
+    }
+dataset_train.collate_fn.base_size_repeat = None
+dataset_train.collate_fn.stop_epoch = 264
