@@ -122,7 +122,7 @@ class ConvertCocoPolysToMask(object):
             target["keypoints"] = keypoints
         iscrowd = torch.tensor([obj["iscrowd"] if "iscrowd" in obj else 0 for obj in anno])
         target["iscrowd"] = iscrowd[keep]
-        target["orig_size"] = torch.as_tensor([int(h), int(w)])
+        target["orig_size"] = torch.as_tensor([int(w), int(h)])
         target["size"] = torch.as_tensor([int(h), int(w)])
         return image, target
 

@@ -136,67 +136,8 @@ class ConvertCocoPolysToMask(object):
         iscrowd = torch.tensor([obj["iscrowd"] if "iscrowd" in obj else 0 for obj in anno])
         target["area"] = area[keep]
         target["iscrowd"] = iscrowd[keep]
-        target["orig_size"] = torch.as_tensor([int(h), int(w)])
+        target["orig_size"] = torch.as_tensor([int(w), int(h)])
         target["size"] = torch.as_tensor([int(h), int(w)])
         return image, target
 
-
-# def make_coco_transforms(image_set, args=None):
-#     normalize = T.Compose([
-#         T.ToTensor(),
-#         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-#     ])
-
-#     # config the params for data aug
-#     scales = [[640, 640]]
-#     max_size = 1333
-#     scales2_resize = [400, 500, 600]
-#     scales2_crop = [384, 600]
-
-#     # update args from config files
-#     scales = getattr(args, 'data_aug_scales', scales)
-#     max_size = getattr(args, 'data_aug_max_size', max_size)
-#     scales2_resize = getattr(args, 'data_aug_scales2_resize', scales2_resize)
-#     scales2_crop = getattr(args, 'data_aug_scales2_crop', scales2_crop)
-
-#     if image_set == 'train':
-#         return T.ComposeMosaic(
-#             transforms1 = T.Compose([
-#                 T.Mosaic(output_size=320, probability=1.0),
-#                 T.RandomHorizontalFlip(),
-#                 T.RandomResize(scales, max_size=max_size),
-#                 T.ColorJitter(),
-#                 normalize,
-#                 ]),
-#             transforms2 = T.Compose([
-#                 T.RandomHorizontalFlip(),
-#                 T.RandomResize(scales, max_size=max_size),
-#                 T.ColorJitter(),
-#                 # T.RandomSelect(
-#                 #     T.RandomResize(scales, max_size=max_size),
-#                 #     T.Compose([
-#                 #         T.RandomResize(scales2_resize),
-#                 #         T.RandomSizeCrop(*scales2_crop),
-#                 #         T.RandomResize(scales, max_size=max_size),
-#                 #         ]),
-#                 #     ),
-#                 normalize,
-#                 ]),
-#             mosaic_epochs = [2, 8],
-#             mosaic_prob = 0.5
-#         )
-#     elif image_set in ['val', 'test']:
-#         return T.Compose([
-#             T.RandomResize([max(scales)], max_size=max_size),
-#             normalize,
-#         ])
-#     else:
-#         raise ValueError(f'unknown {image_set}')
-
-
-# def build(image_set, args):
-#     root = Path(args.coco_path)
-#     dataset = CocoDetection(root, image_set, transforms=make_coco_transforms(image_set))
-
-#     return dataset
 

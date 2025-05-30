@@ -189,7 +189,7 @@ class Trainer(object):
             )
 
             map_regular = test_stats["coco_eval_keypoints"][0]
-            _isbest = self.best_map_holder.update(map_regular, epoch, is_ema=False)
+            _isbest = self.best_map_holder.update(map_regular, args.start_epoch-1, is_ema=False)
 
         start_time = time.time()
         for epoch in range(args.start_epoch, args.epochs):
@@ -347,7 +347,10 @@ class Trainer(object):
             checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
             self.model_without_ddp.load_state_dict(checkpoint['model'], strict=True)
             if self.ema:
-                self.ema.load_state_dict(checkpoint['ema'] if 'ema' in checkpoint else checkpoint['model'], strict=False)
+                if 'ema' in checkpoint: 
+                    self.ema.load_state_dict(checkpoint['ema'], strict=False)
+                else:
+                    self.ema.module.load_state_dict(checkpoint['model'], strict=False)
 
             if not(args.eval or args.test) and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
                 import copy
