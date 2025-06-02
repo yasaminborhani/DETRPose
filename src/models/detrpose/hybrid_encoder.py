@@ -141,7 +141,6 @@ class VGGBlock(nn.Module):
         super().__init__()
         self.ch_in = ch_in
         self.ch_out = ch_out
-        assert ch_out % 2 == 0
         self.conv1 = ConvNormLayer(ch_in, ch_out, 3, 1, padding=1, act=None)
         self.conv2 = ConvNormLayer(ch_in, ch_out, 1, 1, padding=0, act=None)
         self.act = nn.Identity() if act is None else get_activation(act) 
