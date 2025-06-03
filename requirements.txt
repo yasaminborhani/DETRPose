@@ -7,3 +7,4 @@ omegaconf
 calflops
 iopath
 scipy
+numpy==1.24
