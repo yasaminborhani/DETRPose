@@ -14,7 +14,13 @@ import numpy as np
 import tensorrt as trt
 import torch
 import torchvision.transforms as T
+
 from PIL import Image, ImageDraw
+from copy import deepcopy
+from annotator import Annotator
+from annotator_crowdpose import AnnotatorCrowdpose
+
+annotators = {'COCO': Annotator, 'CrowdPose': AnnotatorCrowdpose}
 
 
 class TimeProfiler(contextlib.ContextDecorator):
@@ -121,25 +127,6 @@ class TRTInference(object):
         if self.backend == "torch" and torch.cuda.is_available():
             torch.cuda.synchronize()
 
-
-def draw(images, lines, scores):
-    for i, im in enumerate(images):
-        draw = ImageDraw.Draw(im)
-        scr = scores[i]
-        line = lines[i][scr > thrh]
-        scrs = scr[scr > thrh]
-
-        for j, l in enumerate(line):
-            draw.line(list(l), fill="red", width=5)
-            draw.text(
-                (l[0], l[1]),
-                text=f"{round(scrs[j].item(), 2)}",
-                fill="blue",
-            )
-
-    return images
-
-
 def process_image(m, file_path, device):
     im_pil = Image.open(file_path).convert("RGB")
     w, h = im_pil.size
@@ -149,10 +136,10 @@ def process_image(m, file_path, device):
         [
             T.Resize((640, 640)),
             T.ToTensor(),
-            T.Normalize(mean=[0.538, 0.494, 0.453], std=[0.257, 0.263, 0.273]),
         ]
     )
     im_data = transforms(im_pil)[None]
+    annotator = annotators[annotator_type](deepcopy(im_pil))
 
     blob = {
         "images": im_data.to(device),
@@ -160,10 +147,17 @@ def process_image(m, file_path, device):
     }
 
     output = m(blob)
-    result_images = draw([im_pil], output["lines"], output["scores"])
-    result_images[0].save(f"{OUTPUT_NAME}.jpg")
-    print(f"Image processing complete. Result saved as '{OUTPUT_NAME}.jpg'.")
+    
+    scores, labels, keypoints = output
 
+    scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+    for kpt, score in zip(keypoints, scores):
+        if score > thrh:
+            annotator.kpts(
+                kpt,
+                [h, w]
+                )
+    annotator.save(f"{OUTPUT_NAME}.jpg")
 
 def process_video(m, file_path, device):
     cap = cv2.VideoCapture(file_path)
@@ -181,7 +175,6 @@ def process_video(m, file_path, device):
         [
             T.Resize((640, 640)),
             T.ToTensor(),
-            T.Normalize(mean=[0.538, 0.494, 0.453], std=[0.257, 0.263, 0.273]),
         ]
     )
 
@@ -197,6 +190,7 @@ def process_video(m, file_path, device):
 
         w, h = frame_pil.size
         orig_size = torch.tensor([w, h], device=device)[None]
+        annotator = annotators[annotator_type](deepcopy(frame_pil))
 
         im_data = transforms(frame_pil)[None]
 
@@ -207,11 +201,17 @@ def process_video(m, file_path, device):
 
         output = m(blob)
 
-        # Draw detections on the frame
-        result_images = draw([frame_pil], output["lines"], output["scores"])
+        scores, labels, keypoints = output
+        scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+        for kpt, score in zip(keypoints, scores):
+            if score > thrh:
+                annotator.kpts(
+                    kpt,
+                    [h, w]
+                    )
 
         # Convert back to OpenCV image
-        frame = cv2.cvtColor(np.array(result_images[0]), cv2.COLOR_RGB2BGR)
+        frame = annotator.result()
 
         # Write the frame
         out.write(frame)
@@ -238,15 +238,24 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-trt", "--trt", type=str, required=True)
+    parser.add_argument("--annotator", type=str, required=True, help="Annotator type: COCO or CrowdPose.")
     parser.add_argument("-i", "--input", type=str, required=True)
     parser.add_argument("-d", "--device", type=str, default="cuda:0")
     parser.add_argument("-t", "--thrh", type=float, required=False, default=None)
 
     args = parser.parse_args()
 
+    assert args.annotator.lower() in ['coco', 'crowdpose']
+
     # Global variable
-    global OUTPUT_NAME , thrh
-    thrh = 0.4 if args.thrh is None else args.thrh
+    global OUTPUT_NAME, thrh, annotator_type
+    thrh = 0.5 if args.thrh is None else args.thrh
+
+    annotator_name = args.annotator.lower()
+    if annotator_name == 'coco':
+        annotator_type = 'COCO'
+    elif annotator_name == 'crowdpose':
+        annotator_type = 'CrowdPose'
     
     m = TRTInference(args.trt, device=args.device)
 
@@ -262,8 +271,9 @@ if __name__ == "__main__":
         paths = list(glob.iglob(f"{folder_dir}/*.*"))
         for file_path in paths:
             OUTPUT_NAME = file_path.replace(f'{folder_dir}/', f'{output_dir}/').split('.')[0]
+            OUTPUT_NAME = f"{OUTPUT_NAME}_{annotator_type}"
             process_file(m, file_path, args.device)
     else:
         # Process a file
-        OUTPUT_NAME = 'trt_results'
+        OUTPUT_NAME = f'trt_results_{annotator_type}'
         process_file(m, file_path, args.device)

@@ -8,41 +8,13 @@ import numpy as np
 import onnxruntime as ort
 import torch
 import torchvision.transforms as T
+
 from PIL import Image, ImageDraw
+from copy import deepcopy
+from annotator import Annotator
+from annotator_crowdpose import AnnotatorCrowdpose
 
-
-def resize_with_aspect_ratio(image, size, interpolation=Image.BILINEAR):
-    """Resizes an image while maintaining aspect ratio and pads it."""
-    original_width, original_height = image.size
-    ratio = min(size / original_width, size / original_height)
-    new_width = int(original_width * ratio)
-    new_height = int(original_height * ratio)
-    image = image.resize((new_width, new_height), interpolation)
-
-    # Create a new image with the desired size and paste the resized image onto it
-    new_image = Image.new("RGB", (size, size))
-    new_image.paste(image, ((size - new_width) // 2, (size - new_height) // 2))
-    return new_image, ratio, (size - new_width) // 2, (size - new_height) // 2
-
-
-def draw(images, lines, scores):
-    result_images = []
-    for i, im in enumerate(images):
-        draw = ImageDraw.Draw(im)
-        scr = scores[i]
-        line = lines[i][scr > thrh]
-        scrs = scr[scr > thrh]
-
-        for j, l in enumerate(line):
-            # Adjust bounding boxes according to the resizing and padding
-            draw.line(list(l), fill="red", width=5)
-            draw.text((l[0], l[1]), 
-                text=f"{round(scrs[j].item(), 2)}",
-                fill="blue")
-
-        result_images.append(im)
-    return result_images
-
+annotators = {'COCO': Annotator, 'CrowdPose': AnnotatorCrowdpose}
 
 def process_image(sess, im_pil):
     w, h = im_pil.size
@@ -52,21 +24,27 @@ def process_image(sess, im_pil):
         [
             T.Resize((640, 640)),
             T.ToTensor(),
-            T.Normalize(mean=[0.538, 0.494, 0.453], std=[0.257, 0.263, 0.273]),
         ]
     )
     im_data = transforms(im_pil).unsqueeze(0)
+    annotator = annotators[annotator_type](deepcopy(im_pil))
+
 
     output = sess.run(
         output_names=None,
         input_feed={"images": im_data.numpy(), "orig_target_sizes": orig_size.numpy()},
     )
 
-    lines, scores = output
+    scores, labels, keypoints = output
 
-    result_images = draw([im_pil], lines, scores) #, [ratio], [(pad_w, pad_h)])
-    result_images[0].save(f"{OUTPUT_NAME}.jpg")
-    print(f"Image processing complete. Result saved as '{OUTPUT_NAME}.jpg'.")
+    scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+    for kpt, score in zip(keypoints, scores):
+        if score > thrh:
+            annotator.kpts(
+                kpt,
+                [h, w]
+                )
+    annotator.save(f"{OUTPUT_NAME}.jpg")
 
 
 def process_video(sess, video_path):
@@ -81,6 +59,13 @@ def process_video(sess, video_path):
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(f"{OUTPUT_NAME}.mp4", fourcc, fps, (orig_w, orig_h))
 
+    transforms = T.Compose(
+        [
+            T.Resize((640, 640)),
+            T.ToTensor(),
+        ]
+    )
+        
     frame_count = 0
     print("Processing video frames...")
     while cap.isOpened():
@@ -93,14 +78,8 @@ def process_video(sess, video_path):
 
         w, h = frame_pil.size
         orig_size = torch.tensor([w, h])[None]
+        annotator = annotators[annotator_type](deepcopy(frame_pil))
 
-        transforms = T.Compose(
-            [
-                T.Resize((640, 640)),
-                T.ToTensor(),
-                T.Normalize(mean=[0.538, 0.494, 0.453], std=[0.257, 0.263, 0.273]),
-            ]
-        )
         im_data = transforms(frame_pil).unsqueeze(0)
 
         output = sess.run(
@@ -108,14 +87,17 @@ def process_video(sess, video_path):
             input_feed={"images": im_data.numpy(), "orig_target_sizes": orig_size.numpy()},
         )
 
-        lines, scores = output
-
-        # Draw detections on the original frame
-        result_images = draw([frame_pil], lines, scores) #, [ratio], [(pad_w, pad_h)])
-        frame_with_detections = result_images[0]
+        scores, labels, keypoints = output
+        scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+        for kpt, score in zip(keypoints, scores):
+            if score > thrh:
+                annotator.kpts(
+                    kpt,
+                    [h, w]
+                    )
 
         # Convert back to OpenCV image
-        frame = cv2.cvtColor(np.array(frame_with_detections), cv2.COLOR_RGB2BGR)
+        frame = annotator.result()
 
         # Write the frame
         out.write(frame)
@@ -139,8 +121,9 @@ def process_file(sess, file_path):
         process_video(sess, file_path)
 
 def main(args):
+    assert args.annotator.lower() in ['coco', 'crowdpose']
     # Global variable
-    global OUTPUT_NAME , thrh
+    global OUTPUT_NAME, thrh, annotator_type
 
     """Main function."""
     # Load the ONNX model
@@ -148,7 +131,13 @@ def main(args):
     print(f"Using device: {ort.get_device()}")
 
     input_path = args.input
-    thrh = 0.4 if args.thrh is None else args.thrh
+    thrh = 0.5 if args.thrh is None else args.thrh
+
+    annotator_name = args.annotator.lower()
+    if annotator_name == 'coco':
+        annotator_type = 'COCO'
+    elif annotator_name == 'crowdpose':
+        annotator_type = 'CrowdPose'
 
     # Check if the input argumnet is a file or a folder
     file_path = args.input
@@ -160,10 +149,11 @@ def main(args):
         paths = list(glob.iglob(f"{folder_dir}/*.*"))
         for file_path in paths:
             OUTPUT_NAME = file_path.replace(f'{folder_dir}/', f'{output_dir}/').split('.')[0]
+            OUTPUT_NAME = f"{OUTPUT_NAME}_{annotator_type}"
             process_file(sess, file_path)
     else:
         # Process a file
-        OUTPUT_NAME = 'onxx_results'
+        OUTPUT_NAME = f'onxx_results_{annotator_type}'
         process_file(sess, file_path)
 
 if __name__ == "__main__":
@@ -171,6 +161,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--onnx", type=str, required=True, help="Path to the ONNX model file.")
+    parser.add_argument("--annotator", type=str, required=True, help="Annotator type: COCO or CrowdPose.")
     parser.add_argument("-i", "--input", type=str, required=True, help="Path to the input image or video file.")
     parser.add_argument("-t", "--thrh", type=float, required=False, default=None)
     args = parser.parse_args()

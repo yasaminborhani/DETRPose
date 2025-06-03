@@ -47,10 +47,6 @@ def process_image(model, device, file_path):
                 )
     annotator.save(f"{OUTPUT_NAME}.jpg")
 
-    # result_images = draw([im_pil], lines, scores)
-    # result_images[0].save(f"{OUTPUT_NAME}.jpg")
-    # print(f"Image processing complete. Result saved as '{OUTPUT_NAME}.jpg'.")
-
 
 def process_video(model, device, file_path):
     cap = cv2.VideoCapture(file_path)
