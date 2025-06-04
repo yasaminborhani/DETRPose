@@ -327,7 +327,7 @@ TODO
 </details>
 
 ## Acknowledgement
-This work has been supported by [LambdaLab](https://lambda.ai)
+This work was supported in part by [Lambda, Inc.](https://lambda.ai)
 
 Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [Detectron2](https://github.com/facebookresearch/detectron2/tree/main), and [GroupPose](https://github.com/Michel-liu/GroupPose/tree/main).
 
