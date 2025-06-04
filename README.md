@@ -4,7 +4,7 @@
 </h2>
 
 <p align="center">
-  <a href="https://github.com/SebastianJanampa/DETRPose/master/LICENSE">
+  <a href="https://github.com/SebastianJanampa/DETRPose/blob/main/LICENSE">
         <img alt="colab" src="https://img.shields.io/badge/license-apache%202.0-blue?style=for-the-badge">
   </a>
 
@@ -12,11 +12,11 @@
         <img alt="arxiv" src="https://img.shields.io/badge/-paper-gray?style=for-the-badge&logo=arxiv&labelColor=red">
   </a>
   
-  <a href="">
+  <a href="https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb">
         <img alt="colab" src="https://img.shields.io/badge/-colab-blue?style=for-the-badge&logo=googlecolab&logoColor=white&labelColor=%23daa204&color=yellow">
   </a>
 
-  <a href=''>
+  <a href="https://huggingface.co/spaces/SebasJanampa/DETRPose">
       <img src='https://img.shields.io/badge/-SPACE-orange?style=for-the-badge&logo=huggingface&logoColor=white&labelColor=FF5500&color=orange'>
    </a>
    
@@ -50,10 +50,12 @@ and a new classification loss that are variations of the LQE head and the varifo
 
 ## 🚀 Updates
 - [x] **\[2025.06.02\]** Release DETRPose code and weights.
+- [x] **\[2025.06.04\]** Release [Google Colab Notebook](https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb).
+- [x] **\[2025.06.04\]** Release [HuggingFace 🤗 Space](https://huggingface.co/spaces/SebasJanampa/DETRPose).
 
 ## 📝 TODO
-- [ ] Collab demo
-- [ ] Hugging Face Space Demo
+- [x] Collab demo
+- [x] Hugging Face Space Demo
 - [ ] Paper
 - [ ] Inference time on Tesla V100 with ONNX+TensorRT backend 
 
@@ -84,6 +86,11 @@ and a new classification loss that are variations of the LQE head and the varifo
 **DETRPose-M** | 72.0 | 91.0 | 77.8 | 78.6 | 72.6 | 64.5 | 23.4 M | | 64.9  | [py](https://github.com/SebastianJanampa/DETRPose/blob/main/configs/detrpose/detrpose_hgnetv2_m_crowdpose.py) | [69.4](https://github.com/SebastianJanampa/DETRPose/releases/download/model_weights/detrpose_hgnetv2_m_crowdpose.pth) | 
 **DETRPose-L** | 73.3 | 91.6 | 79.4 | 79.5 | 74.0 | 66.1 | 36.8 M | | 103.5  | [py](https://github.com/SebastianJanampa/DETRPose/blob/main/configs/detrpose/detrpose_hgnetv2_l_crowdpose.py) | [72.5](https://github.com/SebastianJanampa/DETRPose/releases/download/model_weights/detrpose_hgnetv2_l_crowdpose.pth) | 
 **DETRPose-X** | 75.1 | 92.1 | 81.3 | 81.3 | 75.7 | 68.1 | 82.3 M | | 232.3  | [py](https://github.com/SebastianJanampa/DETRPose/blob/main/configs/detrpose/detrpose_hgnetv2_x_crowdpose.py) | [73.3](https://github.com/SebastianJanampa/DETRPose/releases/download/model_weights/detrpose_hgnetv2_x_crowdpose.pth) | 
+
+## Quick start
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb)
+[![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/SebasJanampa/DETRPose)
 
 ### Setup
 
@@ -327,7 +334,7 @@ TODO
 </details>
 
 ## Acknowledgement
-This work was supported in part by [Lambda, Inc.](https://lambda.ai)
+This work was supported in part by [Lambda, Inc](https://lambda.ai).
 
 Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [Detectron2](https://github.com/facebookresearch/detectron2/tree/main), and [GroupPose](https://github.com/Michel-liu/GroupPose/tree/main).
 
