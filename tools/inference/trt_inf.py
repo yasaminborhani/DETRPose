@@ -148,8 +148,7 @@ def process_image(m, file_path, device):
 
     output = m(blob)
     
-    scores, labels, keypoints = output
-
+    scores, labels, keypoints = output.values()
     scores, labels, keypoints = scores[0], labels[0], keypoints[0]
     for kpt, score in zip(keypoints, scores):
         if score > thrh:
@@ -201,7 +200,7 @@ def process_video(m, file_path, device):
 
         output = m(blob)
 
-        scores, labels, keypoints = output
+        scores, labels, keypoints = output.values()
         scores, labels, keypoints = scores[0], labels[0], keypoints[0]
         for kpt, score in zip(keypoints, scores):
             if score > thrh:

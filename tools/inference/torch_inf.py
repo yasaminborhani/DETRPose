@@ -36,8 +36,8 @@ def process_image(model, device, file_path):
     im_data = transforms(im_pil).unsqueeze(0).to(device)
 
     output = model(im_data, orig_size)
-    scores, labels, keypoints = output
 
+    scores, labels, keypoints = output
     scores, labels, keypoints = scores[0], labels[0], keypoints[0]
     for kpt, score in zip(keypoints, scores):
         if score > thrh:

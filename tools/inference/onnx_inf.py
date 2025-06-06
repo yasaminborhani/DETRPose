@@ -36,7 +36,6 @@ def process_image(sess, im_pil):
     )
 
     scores, labels, keypoints = output
-
     scores, labels, keypoints = scores[0], labels[0], keypoints[0]
     for kpt, score in zip(keypoints, scores):
         if score > thrh:
