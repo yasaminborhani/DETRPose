@@ -263,26 +263,26 @@ Inference on images and videos is supported.
 For a single file
 ```shell
 # For COCO model
-python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}.onnx --input examples/example1.jpg  
-python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}.engine --input examples/example1.jpg
+python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}.onnx --input examples/example1.jpg --annotator COCO
+python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}.engine --input examples/example1.jpg --annotator COCO
 python tools/inference/torch_inf.py -c configs/detrpose/detrpose_hgnetv2_${model}.py -r <checkpoint.pth> --input examples/example1.jpg --device cuda:0 
 
 # For CrowdPose model
-python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}_crowdpose.onnx --input examples/example1.jpg  
-python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}_crowdpose.engine --input examples/example1.jpg
+python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}_crowdpose.onnx --input examples/example1.jpg --annotator CrowdPose
+python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}_crowdpose.engine --input examples/example1.jpg --annotator CrowdPose
 python tools/inference/torch_inf.py -c configs/detrpose/detrpose_hgnetv2_${model}_crowdpose.py -r <checkpoint.pth> --input examples/example1.jpg --device cuda:0 
 ```
 
 For a folder
 ```shell
 # For COCO model
-python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}.onnx --input examples  
-python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}.engine --input examples
-python tools/inference/torch_inf.py -c configs/detrpose/detrpose_hgnetv2_${model}.py -r <checkpoint.pth> --input examples --device cuda:0
+python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}.onnx --input examples --annotator COCO
+python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}.engine --input examples --annotator COCO
+python tools/inference/torch_inf.py -c configs/detrpose/detrpose_hgnetv2_${model}.py -r <checkpoint.pth> --input examples --device cuda:0 
 
 # For CrowdPose model
-python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}_crowdpose.onnx --input examples  
-python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}_crowdpose.engine --input examples
+python tools/inference/onnx_inf.py --onnx detrpose_hgnetv2_${model}_crowdpose.onnx --input examples --annotator CrowdPose
+python tools/inference/trt_inf.py --trt detrpose_hgnetv2_${model}_crowdpose.engine --input examples --annotator CrowdPose
 python tools/inference/torch_inf.py -c configs/detrpose/detrpose_hgnetv2_${model}_crowdpose.py -r <checkpoint.pth> --input examples --device cuda:0
 
 ```
@@ -334,7 +334,7 @@ TODO
 </details>
 
 ## Acknowledgement
-This work was supported in part by [Lambda, Inc](https://lambda.ai).
+This work was supported in part by [Lambda.ai](https://lambda.ai).
 
 Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [Detectron2](https://github.com/facebookresearch/detectron2/tree/main), and [GroupPose](https://github.com/Michel-liu/GroupPose/tree/main).
 
