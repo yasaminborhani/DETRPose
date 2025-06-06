@@ -160,8 +160,8 @@ class VGGBlock(nn.Module):
         kernel, bias = self.get_equivalent_kernel_bias()
         self.conv.weight.data = kernel
         self.conv.bias.data = bias 
-        # self.__delattr__('conv1')
-        # self.__delattr__('conv2')
+        self.__delattr__('conv1')
+        self.__delattr__('conv2')
 
     def get_equivalent_kernel_bias(self):
         kernel3x3, bias3x3 = self._fuse_bn_tensor(self.conv1)

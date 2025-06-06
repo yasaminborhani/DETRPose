@@ -76,7 +76,7 @@ def main(args, ):
         (data, size),
         output_file,
         input_names=['images', 'orig_target_sizes'],
-        output_names=['keypoints', 'scores', 'labels'],
+        output_names=['scores', 'labels', 'keypoints'],
         dynamic_axes=dynamic_axes,
         opset_version=16,
         dynamo=True,

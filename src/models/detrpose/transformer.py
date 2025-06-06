@@ -602,6 +602,9 @@ class Transformer(nn.Module):
         
     def convert_to_deploy(self):
         self.project = weighting_function(self.reg_max, self.up, self.reg_scale, deploy=True)
+        self.lqe_embed = nn.ModuleList(
+            [nn.Identity()] * (self.dec_layers-1) + [self.lqe_embed[self.dec_layers-1]]
+        )
 
     def forward(self, feats, targets, samples=None):
         """
