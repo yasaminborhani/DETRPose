@@ -23,14 +23,15 @@ class PostProcess(nn.Module):
         # keypoints
         topk_keypoints = (topk_indexes.float() // out_logits.shape[2]).long()
         labels = topk_indexes % out_logits.shape[2]
-        keypoints = torch.gather(out_keypoints, 1, topk_keypoints.unsqueeze(-1).repeat(1, 1, self.num_body_points*2))
-        keypoints = keypoints * target_sizes.repeat(1, self.num_body_points)[:, None, :]
-
-        keypoints_res = keypoints.unflatten(-1, (-1, 2))
         
         if self.deploy_mode:
-            return scores, labels, keypoints_res
+            keypoints = torch.gather(out_keypoints, 1, topk_keypoints[..., None, None].expand(1, num_select, self.num_body_points, 2))
+            keypoints = keypoints * target_sizes[:, None, None, :]
+            return scores, labels, keypoints
 
+        keypoints = torch.gather(out_keypoints, 1, topk_keypoints.unsqueeze(-1).repeat(1, 1, self.num_body_points*2))
+        keypoints = keypoints * target_sizes.repeat(1, self.num_body_points)[:, None, :]
+        keypoints_res = keypoints.unflatten(-1, (-1, 2))
         keypoints_res = torch.cat(
             [keypoints_res, torch.ones_like(keypoints_res[..., 0:1])], 
             dim=-1).flatten(-2)

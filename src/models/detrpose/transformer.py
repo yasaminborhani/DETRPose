@@ -522,6 +522,7 @@ class Transformer(nn.Module):
         self.up = nn.Parameter(torch.tensor([1/2]), requires_grad=False)
         self.reg_max = reg_max
         self.reg_scale = nn.Parameter(torch.tensor([reg_scale]), requires_grad=False)
+        self.deploy = False
 
 
         # two stage
@@ -605,6 +606,7 @@ class Transformer(nn.Module):
         self.lqe_embed = nn.ModuleList(
             [nn.Identity()] * (self.dec_layers-1) + [self.lqe_embed[self.dec_layers-1]]
         )
+        self.deploy = True
 
     def forward(self, feats, targets, samples=None):
         """
@@ -716,7 +718,8 @@ class Transformer(nn.Module):
                 project=project,
                 )
 
-        out_poses = out_poses.flatten(-2)
+        if not self.deploy:
+            out_poses = out_poses.flatten(-2)
 
         if self.training and dn_meta is not None:
             # flattenting (L, bs, nq, np, 2) -> (L, bs, nq, np * 2)
