@@ -52,6 +52,7 @@ class TRTInference(object):
             self.stream = cuda.Stream()
         self.time_profile = TimeProfiler()
         self.time_profile_dataset = TimeProfiler()
+        self.yolo = 'yolo' in engine_path
 
     def init(self):
         self.dynamic = False
@@ -161,9 +162,11 @@ class TRTInference(object):
             times.append(self.time_profile.total)
 
         # end-to-end model only
-        times = sorted(times)
-        if len(times) > 100 and nonempty_process:
-            times = times[:100]
+        if not self.yolo:
+            print('end-to-end')
+            times = sorted(times)
+            if len(times) > 100 and nonempty_process:
+                times = times[:100]
 
         avg_time = sum(times) / len(times)  # Calculate the average of the remaining times
         return avg_time
@@ -191,7 +194,7 @@ def main():
         model.warmup(blob, 400)
         t = []
         for _ in range(1):
-            t.append(model.speed(dataset, 400, FLAGS.busy))
+            t.append(model.speed(dataset, 1000, FLAGS.busy))
         avg_latency = 1000 * torch.tensor(t).mean()
         results.append((engine_file, avg_latency))
         print(f"Engine: {engine_file}, Latency: {avg_latency:.2f} ms")
