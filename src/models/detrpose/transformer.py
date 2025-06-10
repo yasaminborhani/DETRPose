@@ -625,7 +625,6 @@ class Transformer(nn.Module):
         else: 
             output_proposals = self.anchors.repeat(memory.size(0), 1, 1)
             output_memory = memory.masked_fill(self.valid_mask, float(0))
-        # print(output_memory.shape, memory.shape)
 
         output_memory = self.enc_output_norm(self.enc_output(output_memory))
         # top-k select index
@@ -654,7 +653,7 @@ class Transformer(nn.Module):
 
         # combine pose embedding
         if self.learnable_tgt_init:
-            tgt = self.tgt_embed.weight.unsqueeze(0).tile([memory.shape[0], 1, 1]).unsqueeze(-2)
+            tgt = self.tgt_embed.weight.unsqueeze(0).repeat([memory.shape[0], 1, 1]).unsqueeze(-2)
             # tgt = self.tgt_embed.unsqueeze(0).tile([memory.shape[0], 1, 1]).unsqueeze(-2)
         else:
             tgt = topk_memory.detach().unsqueeze(-2)
