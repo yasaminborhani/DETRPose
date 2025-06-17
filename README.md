@@ -8,7 +8,7 @@
         <img alt="colab" src="https://img.shields.io/badge/license-apache%202.0-blue?style=for-the-badge">
   </a>
 
-  <a href="">
+  <a href="https://www.arxiv.org/abs/2506.13027">
         <img alt="arxiv" src="https://img.shields.io/badge/-paper-gray?style=for-the-badge&logo=arxiv&labelColor=red">
   </a>
   
@@ -25,7 +25,7 @@
 <p align="center">
     📄 This is the official implementation of the paper:
     <br>
-    <a href="">DETRPose: Real-time end-to-end transformer model for multi-person pose estimation</a>
+    <a href="https://www.arxiv.org/abs/2506.13027">DETRPose: Real-time end-to-end transformer model for multi-person pose estimation</a>
 </p>
 
 </p>
@@ -41,22 +41,38 @@ The University of New Mexico
 Department of Electrical and Computer Engineering
 </p>
 
+---
+<p align="center">
+    <a href="https://paperswithcode.com/sota/multi-person-pose-estimation-on-crowdpose?p=detrpose-real-time-end-to-end-transformer">
+    <img src="https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/detrpose-real-time-end-to-end-transformer/multi-person-pose-estimation-on-crowdpose">
+    </a>
+</p>
+
+<p align="center">
+    <img src="https://github.com/SebastianJanampa/DETRPose/blob/main/assets/metrics.png">
+    </a>
+</p>
+
+
 DETRPose is the first real-time end-to-end transformer model for multi-person pose estimation, 
 achieving outstanding results on the COCO and CrowdPose datasets. In this work, we propose a 
 new denoising technique suitable for pose estimation that uses the Object Keypoint Similarity (OKS) 
 metric to generate positive and negative queries. Additionally, we develop a new classification head 
 and a new classification loss that are variations of the LQE head and the varifocal loss used in D-FINE.
 
+<details open>
+<summary> Video </summary>
+We conduct object detection using DETRPose to show its efficiency and low latency.
+  
+https://github.com/user-attachments/assets/de3f4ee3-182b-43f8-a40b-1aa3bee54e51
+
+</details>
 
 ## 🚀 Updates
 - [x] **\[2025.06.02\]** Release DETRPose code and weights.
 - [x] **\[2025.06.04\]** Release [Google Colab Notebook](https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb).
 - [x] **\[2025.06.04\]** Release [HuggingFace 🤗 Space](https://huggingface.co/spaces/SebasJanampa/DETRPose).
-
-## 📝 TODO
-- [x] Collab demo
-- [x] Hugging Face Space Demo
-- [ ] Paper
+- [x] **\[2025.06.17\]** Release paper on [arxiv](https://www.arxiv.org/abs/2506.13027).
 
 ## Model Zoo
 ### COCO val2017
@@ -212,6 +228,12 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4  tra
 ```
 </details>
 
+### Lambda instances
+All latency experiments using Lambda.ai instances. We have provided two README files 
+
+  1. to run a [TensorRT container ](https://github.com/SebastianJanampa/DETRPose/blob/main/assets/TENSORRT_CONTAINER_LAMBDA.AI.md)in a Lambda.ai instance 
+  2. to install a [TensorRT `.deb`](https://github.com/SebastianJanampa/DETRPose/blob/main/assets/TENSORRT_DEB_LAMBDA.AI.md) in a Lambda.ai instance
+
 ## Tools
 <details>
 <summary> Deployment </summary>
@@ -331,7 +353,15 @@ If you use `DETRPose` or its methods in your work, please cite the following Bib
 <summary> bibtex </summary>
 
 ```latex
-TODO
+@misc{janampa2025detrpose,
+      title={DETRPose: Real-time end-to-end transformer model for multi-person pose estimation}, 
+      author={Sebastian Janampa and Marios Pattichis},
+      year={2025},
+      eprint={2506.13027},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2506.13027}, 
+}
 ```
 </details>
 
@@ -341,3 +371,7 @@ This work was supported in part by [Lambda.ai](https://lambda.ai).
 Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [Detectron2](https://github.com/facebookresearch/detectron2/tree/main), and [GroupPose](https://github.com/Michel-liu/GroupPose/tree/main).
 
 ✨ Feel free to contribute and reach out if you have any questions! ✨
+
+<div align="left">
+  <img src="https://github.com/SebastianJanampa/DETRPose/blob/main/assets/lambda_logo2.png" width=500 >
+</div>
