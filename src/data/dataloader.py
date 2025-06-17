@@ -124,7 +124,7 @@ class BatchImageCollateFunction(BaseCollateFunction):
         # Apply Mixup if within specified epoch range and probability threshold
         if random.random() < self.mixup_prob and self.mixup_epochs[0] <= self.epoch < self.mixup_epochs[1]:
             # Generate mixup ratio
-            beta = 1#round(random.uniform(0.45, 0.55), 6)
+            beta = round(random.uniform(0.45, 0.55), 6)
 
             # Mix images
             images = images.roll(shifts=1, dims=0).mul_(1.0 - beta).add_(images.mul(beta))
@@ -133,18 +133,18 @@ class BatchImageCollateFunction(BaseCollateFunction):
             shifted_targets = targets[-1:] + targets[:-1]
             updated_targets = deepcopy(targets)
 
-            # for i in range(len(targets)):
-            #     # Combine boxes, labels, and areas from original and shifted targets
-            #     updated_targets[i]['boxes'] = torch.cat([targets[i]['boxes'], shifted_targets[i]['boxes']], dim=0)
-            #     updated_targets[i]['keypoints'] = torch.cat([targets[i]['keypoints'], shifted_targets[i]['keypoints']], dim=0)
-            #     updated_targets[i]['labels'] = torch.cat([targets[i]['labels'], shifted_targets[i]['labels']], dim=0)
-            #     updated_targets[i]['area'] = torch.cat([targets[i]['area'], shifted_targets[i]['area']], dim=0)
+            for i in range(len(targets)):
+                # Combine boxes, labels, and areas from original and shifted targets
+                updated_targets[i]['boxes'] = torch.cat([targets[i]['boxes'], shifted_targets[i]['boxes']], dim=0)
+                updated_targets[i]['keypoints'] = torch.cat([targets[i]['keypoints'], shifted_targets[i]['keypoints']], dim=0)
+                updated_targets[i]['labels'] = torch.cat([targets[i]['labels'], shifted_targets[i]['labels']], dim=0)
+                updated_targets[i]['area'] = torch.cat([targets[i]['area'], shifted_targets[i]['area']], dim=0)
 
-            #     # Add mixup ratio to targets
-            #     updated_targets[i]['mixup'] = torch.tensor(
-            #         [beta] * len(targets[i]['labels']) + [1.0 - beta] * len(shifted_targets[i]['labels']), 
-            #         dtype=torch.float32
-            #         )
+                # Add mixup ratio to targets
+                updated_targets[i]['mixup'] = torch.tensor(
+                    [beta] * len(targets[i]['labels']) + [1.0 - beta] * len(shifted_targets[i]['labels']), 
+                    dtype=torch.float32
+                    )
             targets = updated_targets
 
             if self.vis_save and self.vis_image_number < self.max_vis_image_number:
