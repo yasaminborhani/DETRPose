@@ -373,5 +373,7 @@ Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [Detectron
 ✨ Feel free to contribute and reach out if you have any questions! ✨
 
 <div align="left">
-  <img src="https://github.com/SebastianJanampa/DETRPose/blob/main/assets/lambda_logo2.png" width=500 >
+  <a href="https://lambda.ai">
+  	<img src="https://github.com/SebastianJanampa/DETRPose/blob/main/assets/lambda_logo2.png" width=350 >
+  </a>
 </div>
