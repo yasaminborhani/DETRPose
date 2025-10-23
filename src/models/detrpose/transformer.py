@@ -319,11 +319,9 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.energy_out_dim = energy_out_dim     # match the original EnergyHead output
 
         if self.is_energy:
-            self.energy_reduce = nn.Sequential(
-                nn.Linear(d_model, d_model // 2),
-                nn.ReLU(),
-                nn.Linear(d_model // 2, self.energy_out_dim)
-    )
+            self.energy_expand = nn.Linear(self.energy_out_dim, d_model)
+            self.energy_reduce = nn.Linear(d_model, self.energy_out_dim)
+    
 
 
         # FFN: MLP or KAN
@@ -390,6 +388,8 @@ class DeformableTransformerDecoderLayer(nn.Module):
                 memory: Optional[Tensor] = None,
                 memory_spatial_shapes: Optional[Tensor] = None,
             ):
+        if self.is_energy:
+            tgt_pose = self.energy_expand(tgt_pose)
         bs, nq, num_kpt, d_model = tgt_pose.shape
 
         # within-instance self-attention
@@ -593,26 +593,7 @@ class TransformerDecoder(nn.Module):
                 memory_spatial_shapes = spatial_shapes,
             )
             
-            # -------------------- energy-based refinement loop (minimal) --------------------
-            if self.use_energy_refinement and layer_id == self.num_layers - 1:
-                z = output
-                condition = (memory[0].detach(), memory[1].detach(), memory[2].detach())
-
-                for _ in range(self.energy_steps):
-                    E_raw = self.energy_head(tgt_pose = z,
-                                        tgt_pose_query_pos = pose_query_pos,
-                                        tgt_pose_reference_points = refpoint_pose_input,
-                                        attn_mask=attn_mask,
-                                        
-                                        memory = condition,
-                                        memory_spatial_shapes = spatial_shapes)
-                    E = torch.exp(-E_raw).sum()  # make energy always positive
-                    breakpoint()
-
-                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
-                    z = z - self.energy_step_size * grad_z
-
-                output = z.detach() if not self.training else z
+            
 
             output_pose = output[:, :, 1:]
             output_instance = output[:, :, 0]
@@ -635,7 +616,29 @@ class TransformerDecoder(nn.Module):
             refpoint_pose = torch.cat([refpoint_center_pose, refpoint_pose_without_center], dim=2)
             
             
+            # -------------------- energy-based refinement loop (minimal) --------------------
+            if self.use_energy_refinement and layer_id == self.num_layers - 1:
+                n_pred_corners = pred_corners.size()[-1]
+                z = torch.cat((pred_corners, refpoint_pose_without_center), dim=-1)
+                condition = (memory[0].detach(), memory[1].detach(), memory[2].detach())
 
+                for _ in range(self.energy_steps):
+                    E_raw = self.energy_head(tgt_pose = z,
+                                        tgt_pose_query_pos = pose_query_pos,
+                                        tgt_pose_reference_points = refpoint_pose_input,
+                                        attn_mask=attn_mask,
+                                        
+                                        memory = condition,
+                                        memory_spatial_shapes = spatial_shapes)
+                    E = torch.exp(-E_raw).sum()  # make energy always positive
+                    breakpoint()
+
+                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
+                    z = z - self.energy_step_size * grad_z
+
+                pred_corners = z[:n_pred_corners]
+                refpoint_pose_without_center = z[n_pred_corners:]
+                # refpoint_pose = z.detach() if not self.training else z
 
 
             if self.training or layer_id ==self.eval_idx:
