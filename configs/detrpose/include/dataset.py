@@ -20,8 +20,8 @@ __all__ = ["dataset_train", "dataset_val", "dataset_test", "evaluator"]
 
 dataset_train = L(DataLoader)(
 	dataset=L(CocoDetection)(
-		img_folder="./data/COCO2017/train2017",
-		ann_file="./data/COCO2017/annotations/person_keypoints_train2017.json",
+		img_folder="/mnt/vita/scratch/datasets/coco/images/train2017",
+		ann_file="/mnt/vita/scratch/datasets/coco/annotations/person_keypoints_train2017_original.json",
 		transforms=L(Compose)(
 			policy={
 				'name': 'stop_epoch',
@@ -53,8 +53,8 @@ dataset_train = L(DataLoader)(
 
 dataset_val = L(DataLoader)(
 	dataset=L(CocoDetection)(
-		img_folder="./data/COCO2017/val2017",
-		ann_file="./data/COCO2017/annotations/person_keypoints_val2017.json",
+		img_folder="/mnt/vita/scratch/datasets/coco/images/val2017",
+		ann_file="/mnt/vita/scratch/datasets/coco/annotations/person_keypoints_val2017.json",
 		transforms=L(Compose)(
 			transforms1=L(T.RandomResize)(sizes=[eval_spatial_size], max_size=max_size), 
 			transforms2=L(T.ToTensor)(),
@@ -73,8 +73,8 @@ dataset_val = L(DataLoader)(
 
 dataset_test = L(DataLoader)(
 	dataset=L(CocoDetection)(
-		img_folder="./data/COCO2017/test2017",
-		ann_file="./data/COCO2017/annotations/image_info_test-dev2017.json",
+		img_folder="/mnt/vita/scratch/datasets/coco/images/test2017",
+		ann_file="/mnt/vita/scratch/datasets/coco/annotations/image_info_test-dev2017.json",
 		transforms=L(Compose)(
 			transforms1=L(T.RandomResize)(sizes=[eval_spatial_size], max_size=max_size), 
 			transforms2=L(T.ToTensor)(),
@@ -92,7 +92,7 @@ dataset_test = L(DataLoader)(
 	)
 
 evaluator = L(CocoEvaluator)(
-	ann_file="./data/COCO2017/annotations/person_keypoints_val2017.json",
+	ann_file="/mnt/vita/scratch/datasets/coco/annotations/person_keypoints_val2017.json",
 	iou_types=['keypoints'],
 	useCats=True
 	)

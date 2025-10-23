@@ -8,3 +8,21 @@ trt_engines/
 clean_pth_files.py
 **/__pycache__/**
 examples/output/
+
+# Python checkpoints
+*.pth
+*.pt
+
+# Images and videos
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.mov
+*.avi
+
+# Cache / temp
+__pycache__/
+*.log
+*.tmp
+

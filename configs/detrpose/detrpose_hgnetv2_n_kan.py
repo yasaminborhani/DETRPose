@@ -56,7 +56,7 @@ model.transformer.dim_feedforward = 512
 model.transformer.feat_strides = [16, 32]
 model.transformer.hidden_dim = 128
 model.transformer.dec_n_points= 6
-model.transformer.use_kan = False
+model.transformer.use_kan = True
 model.transformer.kan_grid = 3
 
 dataset_train.dataset.transforms.policy = {

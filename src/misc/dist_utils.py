@@ -123,7 +123,7 @@ def warp_model(
         if dist_mode == 'dp':
             model = DP(model, device_ids=[rank], output_device=rank)
         elif dist_mode == 'ddp':
-            model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=find_unused_parameters)
+            model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
         else:
             raise AttributeError('')
 

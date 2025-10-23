@@ -294,7 +294,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
                  use_modulation=False, use_region_sampling=False, region_kernel_size=1,
                  use_global_context=False, use_grouped_offsets=False, num_groups=1,
                  use_grid_attention=False, grid_num_points=16, use_grid_offsets=False,
-                 use_grid_fusion=True, is_energy=False, energy_out_dim=1):
+                 use_grid_fusion=True):
         super().__init__()
         # within-instance self-attention
         self.within_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
@@ -315,16 +315,6 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.gateway = Gate(d_model)
         # FFN
         self.use_kan = use_kan
-        self.is_energy = is_energy  # if True, this layer replaces EnergyHead
-        self.energy_out_dim = energy_out_dim     # match the original EnergyHead output
-
-        if self.is_energy:
-            self.energy_reduce = nn.Sequential(
-                nn.Linear(d_model, d_model // 2),
-                nn.ReLU(),
-                nn.Linear(d_model // 2, self.energy_out_dim)
-    )
-
 
         # FFN: MLP or KAN
         if self.use_kan:
@@ -421,13 +411,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
  
         tgt_pose = self.gateway(tgt_pose, self.dropout1(tgt2_pose))
         tgt_pose = self.forward_FFN(tgt_pose)
-        if self.is_energy:
-            # tgt_pose shape: (bs, nq, num_kpt, d_model)
-            E = self.energy_reduce(tgt_pose)  # -> (bs, nq, num_kpt, 1)
-            return E  # replace EnergyHead output
-        else:
-            return tgt_pose
-
+        return tgt_pose
 
 
 # Modified TransformerDecoder with minimal, opt-in energy-based refinement
@@ -482,11 +466,11 @@ class TransformerDecoder(nn.Module):
                     hidden_dim=256,
                     num_body_points=17,
                     # ---- new minimal energy options (kept optional and off by default) ----
-                    use_energy_refinement = False,
-                    energy_steps = 3,
-                    energy_step_size = 1.0,
-                    energy_hidden = 256,
-                    energy_n_layers = 2,
+                    use_energy_refinement: bool = False,
+                    energy_steps: int = 3,
+                    energy_step_size: float = 1.0,
+                    energy_hidden: int = 256,
+                    energy_n_layers: int = 2,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -511,7 +495,6 @@ class TransformerDecoder(nn.Module):
         # -------------------- energy refinement attributes (minimal) --------------------
         self.use_energy_refinement = use_energy_refinement
         if self.use_energy_refinement:
-            print(">>> Using energy-based pose refinement")
             # step count and a learnable step size
             self.energy_steps = int(energy_steps)
             self.energy_step_size = nn.Parameter(torch.tensor([energy_step_size], dtype=torch.float32))
@@ -519,7 +502,11 @@ class TransformerDecoder(nn.Module):
             pose_dim = self.num_body_points * 2
             self.energy_head = EnergyHead(feat_dim=hidden_dim, pose_dim=pose_dim,
                                           hidden=energy_hidden, n_layers=energy_n_layers)
-     
+        else:
+            # placeholders so attribute access elsewhere remains safe
+            self.energy_steps = 0
+            self.register_parameter("energy_step_size", None)
+            self.energy_head = None
         # -------------------------------------------------------------------------------
 
     def sine_embedding(self, pos_tensor):
@@ -621,20 +608,30 @@ class TransformerDecoder(nn.Module):
             # This block is executed only if self.use_energy_refinement == True.
             # ------------------------------
             if self.use_energy_refinement:
+                # energy loop as before
                 z = refpoint_pose_without_center.clone().detach().requires_grad_(True)
                 bs_, nq_, np_, coord = z.shape
                 cond_feat = output_instance
 
-                for _ in range(self.energy_steps):
+                for _step in range(self.energy_steps):
                     z_flat = z.view(bs_, nq_, -1)
-                    E_raw = self.energy_head(cond_feat, z_flat)
-                    E = torch.exp(-E_raw).sum()  # make energy always positive
-
-                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
+                    E = self.energy_head(cond_feat, z_flat).sum()
+                    grads = torch.autograd.grad(
+                        E,
+                        [z] + list(self.energy_head.parameters()),
+                        create_graph=self.training,
+                        retain_graph=True,
+                        allow_unused=True
+                    )
+                    grad_z = grads[0]
                     z = z - self.energy_step_size * grad_z
+                    z = z.requires_grad_(True)
 
-                refpoint_pose_without_center = z.detach() if not self.training else z
+                # energy-refined keypoints
+                refpoint_pose_without_center = z  # <- do NOT detach in training
 
+            # minimal addition: make sure dec_out_poses uses the refined keypoints
+            dec_out_poses.append(refpoint_pose_without_center)
 
 
             if self.training or layer_id ==self.eval_idx:
@@ -667,6 +664,46 @@ class TransformerDecoder(nn.Module):
 
 
 
+# ---------------------------------------------------------------------
+# Minimal EnergyHead definition (NEW)
+# ---------------------------------------------------------------------
+class EnergyHead(nn.Module):
+    """
+    Minimal energy function E_theta(feat, z) -> scalar per instance.
+
+    Inputs:
+        - feat: (bs, nq, C) conditioning features (e.g. topk_memory)
+        - z_flat: (bs, nq, P) flattened keypoints (P = num_body_points*2)
+    Output:
+        - energy: (bs, nq, 1) scalar energy per instance
+    """
+    def __init__(self, feat_dim, pose_dim, hidden=256, n_layers=2):
+        super().__init__()
+        layers = []
+        in_dim = feat_dim + pose_dim
+        if n_layers <= 1:
+            layers.append(nn.Linear(in_dim, 1))
+        else:
+            layers.append(nn.Linear(in_dim, hidden))
+            layers.append(nn.ReLU(inplace=True))
+            for _ in range(n_layers - 2):
+                layers.append(nn.Linear(hidden, hidden))
+                layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.Linear(hidden, 1))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, feat, z_flat):
+        # feat: (bs, nq, C), z_flat: (bs, nq, P)
+        x = torch.cat([feat, z_flat], dim=-1)
+        bs, nq, _ = x.shape
+        x = x.view(bs * nq, -1)
+        e = self.net(x)
+        e = e.view(bs, nq, 1)
+        return e
+
+# ---------------------------------------------------------------------
+# Transformer class with single DN-split and optional energy refinement
+# ---------------------------------------------------------------------
 class Transformer(nn.Module):
     # Fine-Distribution-Refinement Transformer from D-FINE
     def __init__(
@@ -693,7 +730,7 @@ class Transformer(nn.Module):
         two_stage_bbox_embed_share=True,
         cls_no_bias = False,
         num_body_points=17,
-        # new parameters
+        # new parameters (kept optional)
         feat_strides=None,
         eval_spatial_size=None,
         reg_max=32,
@@ -710,11 +747,12 @@ class Transformer(nn.Module):
         grid_num_points=16,
         use_grid_offsets=False,
         use_grid_fusion=True,
-        use_energy_refinement = False,
-        energy_steps = 3,
-        energy_step_size = 1.0,
-        energy_hidden = 256,
-        energy_n_layers = 2
+        # ---------------- optional energy refinement flags ----------------
+        use_energy_refinement: bool = False,   # if False, network remains exactly as before
+        energy_steps: int = 3,                 # number of inner GD steps
+        energy_step_size: float = 1.0,         # initial step size (learnable param)
+        energy_hidden: int = 256,              # hidden dim for EnergyHead
+        energy_n_layers: int = 2,              # depth of energy MLP
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -733,9 +771,7 @@ class Transformer(nn.Module):
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers,
                                         return_intermediate=return_intermediate_dec,
                                         hidden_dim=hidden_dim,
-                                        num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
-                                        energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers)
+                                        num_body_points=num_body_points)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
@@ -749,7 +785,6 @@ class Transformer(nn.Module):
         self.learnable_tgt_init = learnable_tgt_init
         if learnable_tgt_init:
             self.tgt_embed = nn.Embedding(self.num_queries, self.hidden_dim)
-            # self.register_buffer("tgt_embed", torch.zeros(self.num_queries, hidden_dim))
         else:
             self.tgt_embed = None
 
@@ -831,6 +866,21 @@ class Transformer(nn.Module):
             self.register_buffer("anchors", anchors)
             self.register_buffer("valid_mask", valid_mask)
 
+        # ---------------------------------------------------------------------
+        # Energy refinement options (MINIMAL ADDITIONS — default off)
+        # ---------------------------------------------------------------------
+        self.use_energy_refinement = use_energy_refinement
+        if self.use_energy_refinement:
+            self.energy_steps = int(energy_steps)
+            self.energy_step_size = nn.Parameter(torch.tensor([energy_step_size], dtype=torch.float32))
+            pose_dim = self.num_body_points * 2
+            self.energy_head = EnergyHead(self.hidden_dim, pose_dim, hidden=energy_hidden, n_layers=energy_n_layers)
+        else:
+            self.energy_steps = 0
+            self.register_parameter("energy_step_size", None)
+            self.energy_head = None
+        # ---------------------------------------------------------------------
+
     def _reset_parameters(self):
         for p in self.parameters():
             if p.dim() > 1:
@@ -895,7 +945,6 @@ class Transformer(nn.Module):
         """
         Input:
             - feats: List of multi features [bs, ci, hi, wi]
-            
         """
         # input projection and embedding
         memory, spatial_shapes, split_sizes = self._get_encoder_input(feats)
@@ -937,7 +986,6 @@ class Transformer(nn.Module):
         # combine pose embedding
         if self.learnable_tgt_init:
             tgt = self.tgt_embed.weight.unsqueeze(0).repeat([memory.shape[0], 1, 1]).unsqueeze(-2)
-            # tgt = self.tgt_embed.unsqueeze(0).tile([memory.shape[0], 1, 1]).unsqueeze(-2)
         else:
             tgt = topk_memory.detach().unsqueeze(-2)
         # query construction
@@ -1000,6 +1048,9 @@ class Transformer(nn.Module):
                 project=project,
                 )
 
+        # -------------------
+        # Flatten and DN-split (ONLY ONCE)
+        # -------------------
         if not self.deploy:
             out_poses = out_poses.flatten(-2)
 
@@ -1007,13 +1058,66 @@ class Transformer(nn.Module):
             # flattenting (L, bs, nq, np, 2) -> (L, bs, nq, np * 2)
             out_pre_poses = out_pre_poses.flatten(-2)
             
-            dn_out_poses, out_poses = torch.split(out_poses,[dn_meta['pad_size'], self.num_queries], dim=2)
+            dn_out_poses, out_poses = torch.split(out_poses, [dn_meta['pad_size'], self.num_queries], dim=2)
             dn_out_logits, out_logits = torch.split(out_logits, [dn_meta['pad_size'], self.num_queries], dim=2)
 
             dn_out_corners, out_corners = torch.split(out_corners, [dn_meta['pad_size'], self.num_queries], dim=2)
             dn_out_refs, out_refs = torch.split(out_references, [dn_meta['pad_size'], self.num_queries], dim=2)
 
-            dn_out_pre_poses, out_pre_poses = torch.split(out_pre_poses,[dn_meta['pad_size'], self.num_queries], dim=1)
+            dn_out_pre_poses, out_pre_poses = torch.split(out_pre_poses, [dn_meta['pad_size'], self.num_queries], dim=1)
+            dn_out_pre_scores, out_pre_scores = torch.split(out_pre_scores, [dn_meta['pad_size'], self.num_queries], dim=1)
+        # -------------------
+
+        # ---------------------------------------------------------------------
+        # ENERGY REFINEMENT (MINIMAL & OPTIONAL)
+        # ---------------------------------------------------------------------
+        if self.use_energy_refinement:
+            # At this point, out_poses holds only the regular queries (bs, nq, P)
+            last_pose = out_poses  # (bs, nq, P)
+            if last_pose is not None:
+                bs_, nq_, P = last_pose.shape
+                cond_feat = topk_memory
+                if cond_feat.shape[1] != nq_:
+                    cond_feat = cond_feat[:, -nq_:, :]
+
+                z = last_pose.clone().detach()
+                z = z.requires_grad_(True)
+
+                for _step in range(self.energy_steps):
+                    z_flat = z.view(bs_, nq_, P)
+                    E = self.energy_head(cond_feat, z_flat)  # (bs, nq, 1)
+                    Esum = E.sum()
+                    grad_z = torch.autograd.grad(Esum, z, create_graph=self.training)[0]
+                    step_size = self.energy_step_size.view(1) if isinstance(self.energy_step_size, torch.nn.Parameter) else self.energy_step_size
+                    z = z - step_size * grad_z
+                    z = z.requires_grad_(True)
+
+                # replace the regular queries with refined z
+                out_poses = z
+
+                # recombine with DN outputs (if present)
+                if self.training and dn_meta is not None:
+                    out_poses = torch.cat([dn_out_poses, out_poses], dim=2)
+
+        # ---------------------------------------------------------------------
+
+        # Final reshape if not deploy (keeps same final structure as original)
+        if not self.deploy:
+            # only reshape if we didn't already recombine above
+            if not (self.training and dn_meta is not None):
+                out_poses = out_poses.reshape(self.dec_layers, memory.shape[0], self.num_queries + (dn_meta['pad_size'] if (self.training and dn_meta is not None) else 0), self.num_body_points, 2)
+            else:
+                # when DN present we already have out_poses recombined (bs, nq_total, P)
+                # nothing to reshape here; later we will split again to build outputs dict
+                pass
+
+        # If DN was present, split again to extract regular outputs for final dict
+        if self.training and dn_meta is not None:
+            dn_out_poses, out_poses = torch.split(out_poses, [dn_meta['pad_size'], self.num_queries], dim=2)
+            dn_out_logits, out_logits = torch.split(out_logits, [dn_meta['pad_size'], self.num_queries], dim=2)
+            dn_out_corners, out_corners = torch.split(out_corners, [dn_meta['pad_size'], self.num_queries], dim=2)
+            dn_out_refs, out_refs = torch.split(out_references, [dn_meta['pad_size'], self.num_queries], dim=2)
+            dn_out_pre_poses, out_pre_poses = torch.split(out_pre_poses, [dn_meta['pad_size'], self.num_queries], dim=1)
             dn_out_pre_scores, out_pre_scores = torch.split(out_pre_scores, [dn_meta['pad_size'], self.num_queries], dim=1)
 
         out = {'pred_logits': out_logits[-1], 'pred_keypoints': out_poses[-1]}
@@ -1051,13 +1155,10 @@ class Transformer(nn.Module):
                 out['dn_aux_pre_outputs'] =  {'pred_logits': dn_out_pre_scores, 'pred_keypoints': dn_out_pre_poses}
                 out['dn_meta'] = dn_meta
 
-        return out #hs_pose, refpoint_pose, mix_refpoint, mix_embedding
+        return out
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_keypoints):
-        # this is a workaround to make torchscript happy, as torchscript
-        # doesn't support dictionary with non-homogeneous values, such
-        # as a dict having both a Tensor and a list.
         return [{'pred_logits': a, 'pred_keypoints': c}
                 for a, c in zip(outputs_class, outputs_keypoints)]
 
@@ -1071,9 +1172,6 @@ class Transformer(nn.Module):
         teacher_corners=None,
         teacher_logits=None,
     ):
-        # this is a workaround to make torchscript happy, as torchscript
-        # doesn't support dictionary with non-homogeneous values, such
-        # as a dict having both a Tensor and a list.
         return [
             {
                 "pred_logits": a,
