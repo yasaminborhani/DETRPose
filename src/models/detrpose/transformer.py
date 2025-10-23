@@ -487,6 +487,7 @@ class TransformerDecoder(nn.Module):
                     energy_step_size = 1.0,
                     energy_hidden = 256,
                     energy_n_layers = 2,
+                    energy_layer = None,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -517,8 +518,7 @@ class TransformerDecoder(nn.Module):
             self.energy_step_size = nn.Parameter(torch.tensor([energy_step_size], dtype=torch.float32))
             # energy head conditions on per-query instance features (hidden_dim) + flattened pose
             pose_dim = self.num_body_points * 2
-            self.energy_head = EnergyHead(feat_dim=hidden_dim, pose_dim=pose_dim,
-                                          hidden=energy_hidden, n_layers=energy_n_layers)
+            self.energy_head = energy_layer
      
         # -------------------------------------------------------------------------------
 
@@ -593,6 +593,27 @@ class TransformerDecoder(nn.Module):
                 memory_spatial_shapes = spatial_shapes,
             )
             
+            # -------------------- energy-based refinement loop (minimal) --------------------
+            if self.use_energy_refinement and layer_id == self.num_layers - 1:
+                z = output
+                condition = (memory[0].detach(), memory[1].detach(), memory[2].detach())
+
+                for _ in range(self.energy_steps):
+                    E_raw = self.energy_head(tgt_pose = z,
+                                        tgt_pose_query_pos = pose_query_pos,
+                                        tgt_pose_reference_points = refpoint_pose_input,
+                                        attn_mask=attn_mask,
+                                        
+                                        memory = condition,
+                                        memory_spatial_shapes = spatial_shapes)
+                    E = torch.exp(-E_raw).sum()  # make energy always positive
+                    breakpoint()
+
+                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
+                    z = z - self.energy_step_size * grad_z
+
+                output = z.detach() if not self.training else z
+
             output_pose = output[:, :, 1:]
             output_instance = output[:, :, 0]
 
@@ -613,27 +634,7 @@ class TransformerDecoder(nn.Module):
             refpoint_center_pose = torch.mean(refpoint_pose_without_center, dim=2, keepdim=True)
             refpoint_pose = torch.cat([refpoint_center_pose, refpoint_pose_without_center], dim=2)
             
-            # ------------------------------
-            # OPTIONAL ENERGY-BASED REFINEMENT
-            # Minimal change: refine the pose coordinates (refpoint_pose_without_center)
-            # using a learned energy E_theta(feat, z) where feat is output_instance (bs,nq,hidden_dim)
-            # and z is the per-query pose (bs,nq,num_body_points,2).
-            # This block is executed only if self.use_energy_refinement == True.
-            # ------------------------------
-            if self.use_energy_refinement:
-                z = refpoint_pose_without_center.clone().detach().requires_grad_(True)
-                bs_, nq_, np_, coord = z.shape
-                cond_feat = output_instance
-
-                for _ in range(self.energy_steps):
-                    z_flat = z.view(bs_, nq_, -1)
-                    E_raw = self.energy_head(cond_feat, z_flat)
-                    E = torch.exp(-E_raw).sum()  # make energy always positive
-
-                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
-                    z = z - self.energy_step_size * grad_z
-
-                refpoint_pose_without_center = z.detach() if not self.training else z
+            
 
 
 
@@ -729,13 +730,24 @@ class Transformer(nn.Module):
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                                           use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion)
-        
+        if use_energy_refinement:
+            print(">>> Initializing energy-based refinement layer")
+            energy_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
+                                                          activation, num_feature_levels, nhead,
+                                                          dec_n_points, use_kan=use_kan, kan_grid=kan_grid, use_modulation=use_modulation, 
+                                                          use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
+                                                          use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
+                                                          use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
+                                                          is_energy=True, energy_out_dim=1)
+        else:
+            energy_layer = None
+
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers,
                                         return_intermediate=return_intermediate_dec,
                                         hidden_dim=hidden_dim,
                                         num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers)
+                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=energy_layer)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
         self.dec_layers = num_decoder_layers

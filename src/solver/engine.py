@@ -130,7 +130,8 @@ def evaluate(model, postprocessors, coco_evaluator, data_loader, device, writer=
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        outputs = model(samples, targets)
+        with torch.enable_grad():
+            outputs = model(samples, targets)
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors(outputs, orig_target_sizes)

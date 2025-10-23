@@ -1,5 +1,5 @@
 from .include.detrpose_hgnetv2 import model, criterion, training_params, postprocessor
-from .include.dataset import dataset_train, dataset_val, dataset_test, evaluator 
+from .include.dataset2 import dataset_train, dataset_val, dataset_test, evaluator 
 
 from src.core import LazyCall as L
 from src.nn.optimizer import ModelEMA 
@@ -7,7 +7,7 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_m_grid_attention"
+training_params.output_dir =  "output/detrpose_hgnetv2_m_energy_1"
 training_params.epochs = 64 # 60 + 4 
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
