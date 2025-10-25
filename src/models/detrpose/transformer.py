@@ -294,7 +294,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
                  use_modulation=False, use_region_sampling=False, region_kernel_size=1,
                  use_global_context=False, use_grouped_offsets=False, num_groups=1,
                  use_grid_attention=False, grid_num_points=16, use_grid_offsets=False,
-                 use_grid_fusion=True, is_energy=False, energy_out_dim=1):
+                 use_grid_fusion=True, is_energy=False, energy_in_dim=68, energy_out_dim=1):
         super().__init__()
         # within-instance self-attention
         self.within_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
@@ -319,7 +319,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.energy_out_dim = energy_out_dim     # match the original EnergyHead output
 
         if self.is_energy:
-            self.energy_expand = nn.Linear(self.energy_out_dim, d_model)
+            self.energy_expand = nn.Linear(energy_in_dim, d_model)
             self.energy_reduce = nn.Linear(d_model, self.energy_out_dim)
     
 
@@ -616,39 +616,43 @@ class TransformerDecoder(nn.Module):
             refpoint_pose = torch.cat([refpoint_center_pose, refpoint_pose_without_center], dim=2)
             
             
-            # -------------------- energy-based refinement loop (minimal) --------------------
-            if self.use_energy_refinement and layer_id == self.num_layers - 1:
-                n_pred_corners = pred_corners.size()[-1]
-                z = torch.cat((pred_corners, refpoint_pose_without_center), dim=-1)
-                condition = (memory[0].detach(), memory[1].detach(), memory[2].detach())
-
-                for _ in range(self.energy_steps):
-                    E_raw = self.energy_head(tgt_pose = z,
-                                        tgt_pose_query_pos = pose_query_pos,
-                                        tgt_pose_reference_points = refpoint_pose_input,
-                                        attn_mask=attn_mask,
-                                        
-                                        memory = condition,
-                                        memory_spatial_shapes = spatial_shapes)
-                    E = torch.exp(-E_raw).sum()  # make energy always positive
-                    breakpoint()
-
-                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
-                    z = z - self.energy_step_size * grad_z
-
-                pred_corners = z[:n_pred_corners]
-                refpoint_pose_without_center = z[n_pred_corners:]
+            
                 # refpoint_pose = z.detach() if not self.training else z
 
 
             if self.training or layer_id ==self.eval_idx:
                 score = class_head[layer_id](output_instance)
                 logit = lqe_head[layer_id](score, refpoint_pose_without_center, feat_lqe)
+                
+                # -------------------- energy-based refinement loop (minimal) --------------------
+                if self.use_energy_refinement and layer_id == self.num_layers - 1:
+                    n_pred_corners = pred_corners.size()[-1]
+                    n_logit        = logit.size()[-1]
+                    z = torch.cat((torch.cat((pred_corners, refpoint_pose_without_center), dim=-1),
+                                   logit[..., None, :].repeat((1, 1 , 1, n_pred_corners//n_logit))
+                                    ), dim=-2) #
+                    condition = (memory[0].detach(), memory[1].detach(), memory[2].detach())
+
+                    for _ in range(self.energy_steps):
+                        E_raw = self.energy_head(tgt_pose = z,
+                                            tgt_pose_query_pos = pose_query_pos,
+                                            tgt_pose_reference_points = refpoint_pose_input,
+                                            attn_mask=attn_mask,
+                                            
+                                            memory = condition,
+                                            memory_spatial_shapes = spatial_shapes)
+                        E = torch.exp(-E_raw.sum([2, 3]))  # make energy always positive
+                        breakpoint()
+                        grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
+                        z = z - self.energy_step_size * grad_z
+                    pred_corners = z[..., :-1, :n_pred_corners]
+                    refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
+                    logit = z[..., -1, 0]
+
                 dec_out_logits.append(logit)
                 dec_out_poses.append(refpoint_pose_without_center)
                 dec_out_pred_corners.append(pred_corners)
                 dec_out_refs.append(ref_pose_initial)
-
                 if not self.training:
                     break
 
@@ -741,7 +745,7 @@ class Transformer(nn.Module):
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                                           use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
-                                                          is_energy=True, energy_out_dim=1)
+                                                          is_energy=True, energy_in_dim=68, energy_out_dim=1)
         else:
             energy_layer = None
 
