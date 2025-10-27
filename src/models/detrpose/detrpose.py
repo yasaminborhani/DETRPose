@@ -46,7 +46,7 @@ class DETRPose(nn.Module):
 
             if trainable_energy:
                 # for modules in self.transformer.energy_head, set all params trainable
-                energy_head = getattr(self.transformer, "energy_head", None)
+                energy_head = getattr(self.transformer, "energy_layer", None)
                 if energy_head is not None:
                     print('unfreezing energy head...')
                     for p in energy_head.parameters():
@@ -55,7 +55,7 @@ class DETRPose(nn.Module):
                 else:
                     # best-effort: try to find any submodule named 'energy' or 'energy_head'
                     for name, module in self.transformer.named_modules():
-                        if name.endswith("energy_head") or name.endswith("energy"):
+                        if name.endswith("energy_layer") or name.endswith("energy"):
                             for p in module.parameters():
                                 p.requires_grad = True 
             t_after, nt_after = count_params(self)
