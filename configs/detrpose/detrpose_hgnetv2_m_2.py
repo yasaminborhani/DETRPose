@@ -7,7 +7,7 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_m_energy_1"
+training_params.output_dir =  "output/detrpose_m_2"
 training_params.epochs = 64 # 60 + 4 
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
@@ -44,23 +44,6 @@ model.backbone.use_lab = True
 model.encoder.in_channels = [384, 768, 1536]
 model.encoder.depth_mult = 0.67
 model.transformer.num_decoder_layers = 4
-model.transformer.use_kan = False
-model.transformer.kan_grid = 3
-model.transformer.use_region_sampling = False
-model.transformer.use_modulation = False
-model.transformer.use_global_context = False
-model.transformer.use_grouped_offsets = False
-# New settings for grid attention
-model.transformer.use_grid_attention = False
-model.transformer.grid_num_points = 16
-model.transformer.use_grid_offsets = False
-model.transformer.use_grid_fusion = True
-# New settings for energy refinement
-model.transformer.use_energy_refinement = True
-model.transformer.energy_steps = 3
-model.transformer.energy_step_size = 1.0
-model.transformer.energy_hidden = 256
-model.transformer.energy_n_layers = 4
 
 dataset_train.dataset.transforms.policy = {
     'name': 'stop_epoch',

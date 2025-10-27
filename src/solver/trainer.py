@@ -345,7 +345,7 @@ class Trainer(object):
         if hasattr(args, "resume") and len(args.resume)>0:
             print(f"Loading weights from {args.resume}")
             checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
-            self.model_without_ddp.load_state_dict(checkpoint['model'], strict=True)
+            self.model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
             if self.ema:
                 if 'ema' in checkpoint: 
                     self.ema.load_state_dict(checkpoint['ema'], strict=False)

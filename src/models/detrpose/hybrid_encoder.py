@@ -341,6 +341,7 @@ class HybridEncoder(nn.Module):
             # position embedding
             temperatureH=20,
             temperatureW=20,
+            freeze_network=False, 
         ):
         super().__init__()
         self.in_channels = in_channels
@@ -402,6 +403,14 @@ class HybridEncoder(nn.Module):
             )
 
         self._reset_parameters()
+
+        if freeze_network:
+            print("Freezing the entire Hybrid Encoder.")
+            self._freeze_parameters(self)
+
+    def _freeze_parameters(self, m: nn.Module):
+        for p in m.parameters():
+            p.requires_grad = False
 
     def _reset_parameters(self):
         # init input_proj

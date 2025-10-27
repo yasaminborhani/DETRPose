@@ -484,7 +484,9 @@ class HGNetv2(nn.Module):
                  freeze_norm=True,
                  pretrained=True,
                  local_model_dir='weight/hgnetv2/',
-                 for_pgi=False):
+                 for_pgi=False,
+                 freeze_network=False,
+    ):
         super().__init__()
         self.use_lab = use_lab
         self.return_idx = return_idx
@@ -561,6 +563,11 @@ class HGNetv2(nn.Module):
                                 + RESET + f"{download_url}" + GREEN + " to " + RESET + f"{local_model_dir}." + RESET)
                 exit()
 
+        # ✅ NEW: Freeze the entire model if requested
+        if freeze_network:
+            print("Freezing the entire HGNetv2 backbone.")
+            self._freeze_parameters(self)
+
 
     def _freeze_norm(self, m: nn.Module):
         if isinstance(m, nn.BatchNorm2d):
@@ -603,4 +610,5 @@ def build_hgnetv2(args):
         freeze_stem_only= args.freeze_stem_only,
         use_lab = args.use_lab,
         pretrained = args.pretrained, 
+        freeze_network=args.freeze_network, 
         )

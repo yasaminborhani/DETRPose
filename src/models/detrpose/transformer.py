@@ -294,7 +294,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
                  use_modulation=False, use_region_sampling=False, region_kernel_size=1,
                  use_global_context=False, use_grouped_offsets=False, num_groups=1,
                  use_grid_attention=False, grid_num_points=16, use_grid_offsets=False,
-                 use_grid_fusion=True, is_energy=False, energy_out_dim=1):
+                 use_grid_fusion=True, is_energy=False, energy_in_dim=68, energy_out_dim=1):
         super().__init__()
         # within-instance self-attention
         self.within_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
@@ -319,7 +319,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.energy_out_dim = energy_out_dim     # match the original EnergyHead output
 
         if self.is_energy:
-            self.energy_expand = nn.Linear(self.energy_out_dim, d_model)
+            self.energy_expand = nn.Linear(energy_in_dim, d_model)
             self.energy_reduce = nn.Linear(d_model, self.energy_out_dim)
     
 
@@ -390,6 +390,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
             ):
         if self.is_energy:
             tgt_pose = self.energy_expand(tgt_pose)
+
         bs, nq, num_kpt, d_model = tgt_pose.shape
 
         # within-instance self-attention
@@ -410,16 +411,19 @@ class DeformableTransformerDecoderLayer(nn.Module):
             )[0].reshape(bs * num_kpt, nq, d_model)
         tgt_pose = tgt_pose + self.across_dropout(tgt2_pose)
         tgt_pose = self.across_norm(tgt_pose).reshape(bs, num_kpt, nq, d_model).transpose(1, 2) # bs, nq, num_kpts, 2
-        
-        # deformable cross-attention
-        tgt2_pose = self.cross_attn(self.with_pos_embed(tgt_pose, tgt_pose_query_pos, self.training).flatten(1, 2),
-                                         tgt_pose_reference_points,
-                                         memory, #.transpose(0, 1), 
-                                         memory_spatial_shapes, 
-                                        ).reshape(bs, nq, num_kpt, d_model)
+            
 
- 
-        tgt_pose = self.gateway(tgt_pose, self.dropout1(tgt2_pose))
+        if not self.is_energy:
+            # deformable cross-attention
+            tgt2_pose = self.cross_attn(self.with_pos_embed(tgt_pose, tgt_pose_query_pos, self.training).flatten(1, 2),
+                                            tgt_pose_reference_points,
+                                            memory, #.transpose(0, 1), 
+                                            memory_spatial_shapes, 
+                                            ).reshape(bs, nq, num_kpt, d_model)
+
+    
+            tgt_pose = self.gateway(tgt_pose, self.dropout1(tgt2_pose))
+            
         tgt_pose = self.forward_FFN(tgt_pose)
         if self.is_energy:
             # tgt_pose shape: (bs, nq, num_kpt, d_model)
@@ -484,7 +488,7 @@ class TransformerDecoder(nn.Module):
                     # ---- new minimal energy options (kept optional and off by default) ----
                     use_energy_refinement = False,
                     energy_steps = 3,
-                    energy_step_size = 1.0,
+                    energy_step_size = 0.1,
                     energy_hidden = 256,
                     energy_n_layers = 2,
                     energy_layer = None,
@@ -616,39 +620,78 @@ class TransformerDecoder(nn.Module):
             refpoint_pose = torch.cat([refpoint_center_pose, refpoint_pose_without_center], dim=2)
             
             
-            # -------------------- energy-based refinement loop (minimal) --------------------
-            if self.use_energy_refinement and layer_id == self.num_layers - 1:
-                n_pred_corners = pred_corners.size()[-1]
-                z = torch.cat((pred_corners, refpoint_pose_without_center), dim=-1)
-                condition = (memory[0].detach(), memory[1].detach(), memory[2].detach())
-
-                for _ in range(self.energy_steps):
-                    E_raw = self.energy_head(tgt_pose = z,
-                                        tgt_pose_query_pos = pose_query_pos,
-                                        tgt_pose_reference_points = refpoint_pose_input,
-                                        attn_mask=attn_mask,
-                                        
-                                        memory = condition,
-                                        memory_spatial_shapes = spatial_shapes)
-                    E = torch.exp(-E_raw).sum()  # make energy always positive
-                    breakpoint()
-
-                    grad_z = torch.autograd.grad(E, z, create_graph=self.training)[0]
-                    z = z - self.energy_step_size * grad_z
-
-                pred_corners = z[:n_pred_corners]
-                refpoint_pose_without_center = z[n_pred_corners:]
+            
                 # refpoint_pose = z.detach() if not self.training else z
 
 
             if self.training or layer_id ==self.eval_idx:
                 score = class_head[layer_id](output_instance)
                 logit = lqe_head[layer_id](score, refpoint_pose_without_center, feat_lqe)
+                
+                # -------------------- energy-based refinement loop (minimal) --------------------
+                if self.use_energy_refinement and layer_id == self.num_layers - 1:
+                    n_pred_corners = pred_corners.size()[-1]
+                    n_refpoint_pose = refpoint_pose_without_center.size()[-1]
+                    n_logit        = logit.size()[-1]
+                    # build z
+                    z = torch.cat(
+                        (
+                            torch.cat((pred_corners, refpoint_pose_without_center), dim=-1),
+                            logit[..., None, :].repeat((1, 1, 1, (n_pred_corners + n_refpoint_pose) // n_logit))
+                        ),
+                        dim=-2
+                    )
+
+                    # ensure z participates in autograd
+                    if self.training:
+                        # keep graph if you want higher-order grads through the refinement
+                        z.requires_grad_(True)
+                    else:
+                        # during eval we usually don't need grads to flow back into the base network
+                        z = z.detach().requires_grad_(True)
+
+                    condition = tuple(m.detach() for m in memory)
+
+
+                    for _ in range(self.energy_steps):
+                        E_raw = self.energy_head(
+                            tgt_pose=z,
+                            tgt_pose_query_pos=pose_query_pos,
+                            tgt_pose_reference_points=refpoint_pose_input,
+                            attn_mask=attn_mask,
+                            memory=condition,
+                            memory_spatial_shapes=spatial_shapes
+                        )
+
+                        # 1️⃣ Compute a safe energy term
+                        # Instead of directly exponentiating a sum, we use log-sum-exp for numerical stability
+                        E_neg = -E_raw  # usually energy = -log p(x), so negating makes sense
+                        E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0],-1), dim=1)  # avoids overflow/underflow
+
+                        # 2️⃣ Clamp the energy to a reasonable range (optional)
+                        E_safe = torch.clamp(E_safe, -50, 50)
+
+                        # 3️⃣ Compute gradient
+                        grad_z = torch.autograd.grad(E_safe.sum(), z, create_graph=self.training)[0]
+
+                        # (optional safety check)
+                        if torch.isnan(grad_z).any():
+                            print("Warning: NaN in grad_z detected!")
+                        # breakpoint()
+                        self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
+                        noise = torch.randn_like(z) * 0.0
+                        z = z - self.energy_step_size * grad_z + noise
+                        # breakpoint()
+                    pred_corners = z[..., :-1, :n_pred_corners]
+                    refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
+                    logit = z[..., -1, 0:2]
+                    # breakpoint()
+                    
+
                 dec_out_logits.append(logit)
                 dec_out_poses.append(refpoint_pose_without_center)
                 dec_out_pred_corners.append(pred_corners)
                 dec_out_refs.append(ref_pose_initial)
-
                 if not self.training:
                     break
 
@@ -718,7 +761,8 @@ class Transformer(nn.Module):
         energy_steps = 3,
         energy_step_size = 1.0,
         energy_hidden = 256,
-        energy_n_layers = 2
+        energy_n_layers = 2,
+        freeze_network=False,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -741,7 +785,7 @@ class Transformer(nn.Module):
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                                           use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
-                                                          is_energy=True, energy_out_dim=1)
+                                                          is_energy=True, energy_in_dim=68, energy_out_dim=1)
         else:
             energy_layer = None
 
@@ -845,6 +889,20 @@ class Transformer(nn.Module):
             anchors, valid_mask = self._generate_anchors()
             self.register_buffer("anchors", anchors)
             self.register_buffer("valid_mask", valid_mask)
+
+        if freeze_network:
+            print(">>> Freezing Deformable Transformer Network Parameters")
+            self._freeze_parameters(self)
+
+            # # Unfreeze only energy_layer (if it exists)
+            # if hasattr(self.decoder, "energy_layer") and self.decoder.energy_layer is not None:
+            #     print(">>> Unfreezing energy_layer parameters")
+            #     for p in self.decoder.energy_layer.parameters():
+            #         p.requires_grad = True
+
+    def _freeze_parameters(self, module):
+        for p in module.parameters():
+            p.requires_grad = False
 
     def _reset_parameters(self):
         for p in self.parameters():
