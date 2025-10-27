@@ -76,7 +76,7 @@ model.transformer.energy_hidden = 256
 model.transformer.energy_n_layers = 4
 
 model.is_trainable = False
-model.transformer.trainable_energy = True
+model.trainable_energy = True
 
 dataset_train.dataset.transforms.policy = {
     'name': 'stop_epoch',
