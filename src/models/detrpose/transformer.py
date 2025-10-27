@@ -779,7 +779,7 @@ class Transformer(nn.Module):
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion)
         if use_energy_refinement:
             print(">>> Initializing energy-based refinement layer")
-            energy_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
+            self.energy_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
                                                           activation, num_feature_levels, nhead,
                                                           dec_n_points, use_kan=use_kan, kan_grid=kan_grid, use_modulation=use_modulation, 
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
@@ -787,14 +787,14 @@ class Transformer(nn.Module):
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
                                                           is_energy=True, energy_in_dim=68, energy_out_dim=1)
         else:
-            energy_layer = None
+            self.energy_layer = None
 
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers,
                                         return_intermediate=return_intermediate_dec,
                                         hidden_dim=hidden_dim,
                                         num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=energy_layer)
+                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
