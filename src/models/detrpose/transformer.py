@@ -11,7 +11,7 @@ import copy
 import math
 from typing import Optional, List
 import argparse
-
+import random 
 import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
@@ -552,7 +552,22 @@ class TransformerDecoder(nn.Module):
             raise ValueError("Unknown pos_tensor shape(-1):{}".format(pos_tensor.size(-1)))
         return pos
 
+    def _resolve_energy_steps(self, is_training=False):
+        s = self.energy_steps
+        if isinstance(s, int):
+            return s
+        if isinstance(s, dict):
+            # random.choices accepts weights (doesn't need normalization)
+            values = list(s.keys())
+            weights = list(s.values())
+            if is_training:
+                return random.choices(values, weights=weights, k=1)[0]
+            else:
+                return values[weights.index(max(weights))]
 
+        if callable(s):
+            return int(s())
+        raise TypeError("energy_steps must be int, dict, or callable")
     def forward(self, tgt, memory,
                 refpoints_sigmoid,
                 # prediction heads
@@ -655,7 +670,7 @@ class TransformerDecoder(nn.Module):
                     condition = tuple(m.detach() for m in memory)
 
 
-                    for _ in range(self.energy_steps):
+                    for _ in range(self._resolve_energy_steps(is_training=self.training))
                         E_raw = self.energy_head(
                             tgt_pose=z,
                             tgt_pose_query_pos=pose_query_pos,
