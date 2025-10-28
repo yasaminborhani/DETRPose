@@ -520,7 +520,7 @@ class TransformerDecoder(nn.Module):
         if self.use_energy_refinement:
             print(">>> Using energy-based pose refinement")
             # step count and a learnable step size
-            self.energy_steps = int(energy_steps)
+            self.energy_steps = energy_steps
             self.energy_step_size = nn.Parameter(torch.tensor([energy_step_size], dtype=torch.float32))
             # energy head conditions on per-query instance features (hidden_dim) + flattened pose
             pose_dim = self.num_body_points * 2
@@ -670,7 +670,7 @@ class TransformerDecoder(nn.Module):
                     condition = tuple(m.detach() for m in memory)
 
 
-                    for _ in range(self._resolve_energy_steps(is_training=self.training))
+                    for _ in range(self._resolve_energy_steps(is_training=self.training)):
                         E_raw = self.energy_head(
                             tgt_pose=z,
                             tgt_pose_query_pos=pose_query_pos,

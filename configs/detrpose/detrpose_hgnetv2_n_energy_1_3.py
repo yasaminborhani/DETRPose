@@ -7,7 +7,7 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_1_2"
+training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_3"
 training_params.epochs = 50 # 96 + 4 
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
