@@ -769,6 +769,8 @@ class Transformer(nn.Module):
         energy_n_layers = 2,
         freeze_network=False,
         noise_scale = 0.01,
+        energy_in_dim=68,
+        energy_out_dim=1,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -792,7 +794,7 @@ class Transformer(nn.Module):
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                                           use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
-                                                          is_energy=True, energy_in_dim=68, energy_out_dim=1)
+                                                          is_energy=True, energy_in_dim=energy_in_dim, energy_out_dim=energy_out_dim)
         else:
             self.energy_layer = None
 
