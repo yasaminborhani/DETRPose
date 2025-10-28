@@ -7,7 +7,7 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_2"
+training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_2_2"
 training_params.epochs = 50  
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
@@ -71,9 +71,10 @@ model.transformer.use_grid_fusion = True
 # New settings for energy refinement
 model.transformer.use_energy_refinement = True
 model.transformer.energy_steps = 3
-model.transformer.energy_step_size = 1.0
+model.transformer.energy_step_size = 0.1
 model.transformer.energy_hidden = 256
 model.transformer.energy_n_layers = 4
+model.transformer.noise_scale = 0.005
 
 model.is_trainable = False
 model.trainable_energy = True

@@ -492,6 +492,7 @@ class TransformerDecoder(nn.Module):
                     energy_hidden = 256,
                     energy_n_layers = 2,
                     energy_layer = None,
+                    noise_scale = 0.01,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -506,6 +507,7 @@ class TransformerDecoder(nn.Module):
         self.pose_embed = None
         self.half_pose_ref_point_head = MLP(hidden_dim, hidden_dim, hidden_dim, 2)
         self.eval_idx = num_layers - 1
+        self.noise_scale = noise_scale
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
@@ -679,7 +681,10 @@ class TransformerDecoder(nn.Module):
                             print("Warning: NaN in grad_z detected!")
                         # breakpoint()
                         self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
-                        noise = torch.randn_like(z) * 0.0
+                        if self.training:
+                            noise = torch.randn_like(z) * self.noise_scale
+                        else:
+                            noise = 0.0
                         z = z - self.energy_step_size * grad_z + noise
                         # breakpoint()
                     pred_corners = z[..., :-1, :n_pred_corners]
@@ -763,6 +768,7 @@ class Transformer(nn.Module):
         energy_hidden = 256,
         energy_n_layers = 2,
         freeze_network=False,
+        noise_scale = 0.01,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -770,6 +776,7 @@ class Transformer(nn.Module):
         self.num_queries = num_queries
         self.num_classes = num_classes
         self.aux_loss = aux_loss
+        
    
         decoder_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
                                                           activation, num_feature_levels, nhead,
@@ -794,7 +801,7 @@ class Transformer(nn.Module):
                                         hidden_dim=hidden_dim,
                                         num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer)
+                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer, noise_scale=noise_scale)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
