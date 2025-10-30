@@ -7,8 +7,8 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_m_all"
-training_params.epochs = 130 # 60 + 4 
+training_params.output_dir =  "output/detrpose_hgnetv2_s_2"
+training_params.epochs = 100 # 96 + 4 
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
 
@@ -23,7 +23,7 @@ optimizer = L(optim.AdamW)(
         cfg=[
                 {
                 'params': '^(?=.*backbone).*$',
-                'lr': 0.00001
+                'lr': 0.0001
                 },
             ],
         # model=model
@@ -35,33 +35,21 @@ optimizer = L(optim.AdamW)(
 
 lr_scheduler = L(optim.lr_scheduler.MultiStepLR)(
     # optimizer=optimizer,
-    milestones=[15],
+    milestones=[1000],
     gamma=0.1
     )
 
-model.backbone.name = 'B2'
+model.backbone.name = 'B0'
 model.backbone.use_lab = True
-model.encoder.in_channels = [384, 768, 1536]
-model.encoder.depth_mult = 0.67
-model.transformer.num_decoder_layers = 4
-model.transformer.use_kan = False
-model.transformer.kan_grid = 3
-
-model.transformer.use_region_sampling = False
-model.transformer.use_modulation = True
-model.transformer.use_global_context = True
-model.transformer.use_grouped_offsets = False
-
-# New settings for grid attention
-model.transformer.use_grid_attention = True
-model.transformer.grid_num_points = 16
-model.transformer.use_grid_offsets = True
-model.transformer.use_grid_fusion = True
+model.encoder.in_channels = [256, 512, 1024]
+model.encoder.depth_mult=0.34
+model.encoder.expansion=0.5
+model.transformer.num_decoder_layers = 3
 
 dataset_train.dataset.transforms.policy = {
     'name': 'stop_epoch',
     'ops': ['Mosaic', 'RandomCrop', 'RandomZoomOut'],
-    'epoch': [5, 35, 60] # 60 / 2 + 5 = 35
+    'epoch': [5, 53, 96] # 96 / 2 + 5 = 53
     }
-dataset_train.collate_fn.base_size_repeat = 6
-dataset_train.collate_fn.stop_epoch = 60
+dataset_train.collate_fn.base_size_repeat = 20
+dataset_train.collate_fn.stop_epoch = 96

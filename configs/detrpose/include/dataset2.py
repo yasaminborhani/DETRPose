@@ -20,8 +20,8 @@ __all__ = ["dataset_train", "dataset_val", "dataset_test", "evaluator"]
 
 dataset_train = L(DataLoader)(
 	dataset=L(CocoDetection)(
-		img_folder="/mnt/vita/scratch/datasets/coco/images/val2017",
-		ann_file="/mnt/vita/scratch/datasets/coco/annotations/person_keypoints_val2017.json",
+		img_folder="/home/runai-home/coco/train2017",
+		ann_file="/home/runai-home/coco/annotations/person_keypoints_val2017.json",
 		transforms=L(Compose)(
 			policy={
 				'name': 'stop_epoch',
@@ -53,8 +53,8 @@ dataset_train = L(DataLoader)(
 
 dataset_val = L(DataLoader)(
 	dataset=L(CocoDetection)(
-		img_folder="/mnt/vita/scratch/datasets/coco/images/val2017",
-		ann_file="/mnt/vita/scratch/datasets/coco/annotations/person_keypoints_val2017.json",
+		img_folder="/home/runai-home/coco/val2017",
+		ann_file="/home/runai-home/coco/annotations/person_keypoints_val2017.json",
 		transforms=L(Compose)(
 			transforms1=L(T.RandomResize)(sizes=[eval_spatial_size], max_size=max_size), 
 			transforms2=L(T.ToTensor)(),
@@ -92,7 +92,7 @@ dataset_test = L(DataLoader)(
 	)
 
 evaluator = L(CocoEvaluator)(
-	ann_file="/mnt/vita/scratch/datasets/coco/annotations/person_keypoints_val2017.json",
+	ann_file="/home/runai-home/coco/annotations/person_keypoints_val2017.json",
 	iou_types=['keypoints'],
 	useCats=True
 	)

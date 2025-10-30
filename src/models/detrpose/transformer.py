@@ -15,6 +15,7 @@ import random
 import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
+from omegaconf import OmegaConf, DictConfig
 
 from .ms_deform_attn import MSDeformAttn
 from .dn_component import prepare_for_cdn, dn_post_process
@@ -493,6 +494,7 @@ class TransformerDecoder(nn.Module):
                     energy_n_layers = 2,
                     energy_layer = None,
                     noise_scale = 0.01,
+                    loss_all_steps=False,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -508,6 +510,7 @@ class TransformerDecoder(nn.Module):
         self.half_pose_ref_point_head = MLP(hidden_dim, hidden_dim, hidden_dim, 2)
         self.eval_idx = num_layers - 1
         self.noise_scale = noise_scale
+        self.loss_all_steps = loss_all_steps
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
@@ -669,8 +672,12 @@ class TransformerDecoder(nn.Module):
 
                     condition = tuple(m.detach() for m in memory)
 
+                    # breakpoint()
+                    if isinstance(self.energy_steps, DictConfig):
+                        self.energy_steps = OmegaConf.to_container(self.energy_steps, resolve=True)
 
-                    for _ in range(self._resolve_energy_steps(is_training=self.training)):
+
+                    for i in range(self._resolve_energy_steps(is_training=self.training)):
                         E_raw = self.energy_head(
                             tgt_pose=z,
                             tgt_pose_query_pos=pose_query_pos,
@@ -701,6 +708,17 @@ class TransformerDecoder(nn.Module):
                         else:
                             noise = 0.0
                         z = z - self.energy_step_size * grad_z + noise
+
+                        if self.loss_all_steps and i < self._resolve_energy_steps(is_training=self.training) - 1:
+                            # Re-extract components after each refinement step for loss computation
+                            pred_corners = z[..., :-1, :n_pred_corners]
+                            refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
+                            logit = z[..., -1, 0:2]
+                            dec_out_logits.append(logit)
+                            dec_out_poses.append(refpoint_pose_without_center)
+                            dec_out_pred_corners.append(pred_corners)
+                            dec_out_refs.append(ref_pose_initial)
+                        
                         # breakpoint()
                     pred_corners = z[..., :-1, :n_pred_corners]
                     refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
@@ -786,6 +804,7 @@ class Transformer(nn.Module):
         noise_scale = 0.01,
         energy_in_dim=68,
         energy_out_dim=1,
+        loss_all_steps=False,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -818,7 +837,7 @@ class Transformer(nn.Module):
                                         hidden_dim=hidden_dim,
                                         num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer, noise_scale=noise_scale)
+                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer, noise_scale=noise_scale, loss_all_steps=loss_all_steps)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
