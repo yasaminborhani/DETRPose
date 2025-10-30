@@ -78,7 +78,8 @@ model = L(DETRPose)(
         feat_strides=[8, 16, 32],
         eval_spatial_size=eval_spatial_size,
         reg_max=32,
-        reg_scale=4
+        reg_scale=4, 
+        energy_decrease_weight=0.0,
         ),
     )
 

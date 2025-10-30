@@ -495,6 +495,7 @@ class TransformerDecoder(nn.Module):
                     energy_layer = None,
                     noise_scale = 0.01,
                     loss_all_steps=False,
+                    energy_decrease_weight=0.0,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -511,12 +512,14 @@ class TransformerDecoder(nn.Module):
         self.eval_idx = num_layers - 1
         self.noise_scale = noise_scale
         self.loss_all_steps = loss_all_steps
+        self.energy_decrease_weight = energy_decrease_weight
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
         dim_t = 10000 ** (2 * (dim_t // 2) / (hidden_dim//2))
         self.register_buffer('dim_t', dim_t)
         self.scale = 2 * math.pi
+        self.layer_loss = torch.zeros(1, dtype=torch.float32)
 
         # -------------------- energy refinement attributes (minimal) --------------------
         self.use_energy_refinement = use_energy_refinement
@@ -676,6 +679,9 @@ class TransformerDecoder(nn.Module):
                     if isinstance(self.energy_steps, DictConfig):
                         self.energy_steps = OmegaConf.to_container(self.energy_steps, resolve=True)
 
+                    energy_reg_loss = torch.zeros(1, device=z.device, dtype=z.dtype)  # accumulates reg term
+                    E_prev = None
+                    lambda_energy = getattr(self, "energy_decrease_weight", 1e-2)  # tune this
 
                     for i in range(self._resolve_energy_steps(is_training=self.training)):
                         E_raw = self.energy_head(
@@ -687,21 +693,28 @@ class TransformerDecoder(nn.Module):
                             memory_spatial_shapes=spatial_shapes
                         )
 
-                        # 1️⃣ Compute a safe energy term
-                        # Instead of directly exponentiating a sum, we use log-sum-exp for numerical stability
-                        E_neg = -E_raw  # usually energy = -log p(x), so negating makes sense
-                        E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0],-1), dim=1)  # avoids overflow/underflow
-
-                        # 2️⃣ Clamp the energy to a reasonable range (optional)
+                        # 1️⃣ Compute a safe energy term (same as your original)
+                        E_neg = -E_raw
+                        E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
                         E_safe = torch.clamp(E_safe, -50, 50)
 
-                        # 3️⃣ Compute gradient
+                        # ---------- NEW: compute per-iteration decrease regulariser ----------
+                        # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
+                        if E_prev is not None:
+                            # stop gradient on previous energy so only E_safe contributes gradients
+                            per_example_reg = torch.relu(E_safe - E_prev.detach())  # shape (batch,)
+                            # aggregate (mean) and weight it
+                            energy_reg_loss = energy_reg_loss + lambda_energy * per_example_reg.mean()
+                        # set previous energy for next iteration
+                        E_prev = E_safe
+                        # --------------------------------------------------------------------
+
+                        # 3️⃣ Compute gradient for z
                         grad_z = torch.autograd.grad(E_safe.sum(), z, create_graph=self.training)[0]
 
-                        # (optional safety check)
                         if torch.isnan(grad_z).any():
                             print("Warning: NaN in grad_z detected!")
-                        # breakpoint()
+
                         self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
                         if self.training:
                             noise = torch.randn_like(z) * self.noise_scale
@@ -724,7 +737,7 @@ class TransformerDecoder(nn.Module):
                     refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
                     logit = z[..., -1, 0:2]
                     # breakpoint()
-                    
+                    self.layer_loss = energy_reg_loss
 
                 dec_out_logits.append(logit)
                 dec_out_poses.append(refpoint_pose_without_center)
@@ -805,6 +818,7 @@ class Transformer(nn.Module):
         energy_in_dim=68,
         energy_out_dim=1,
         loss_all_steps=False,
+        energy_decrease_weight=0.0,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -812,6 +826,7 @@ class Transformer(nn.Module):
         self.num_queries = num_queries
         self.num_classes = num_classes
         self.aux_loss = aux_loss
+        self.energy_decrease_weight = energy_decrease_weight
         
    
         decoder_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
@@ -837,7 +852,8 @@ class Transformer(nn.Module):
                                         hidden_dim=hidden_dim,
                                         num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer, noise_scale=noise_scale, loss_all_steps=loss_all_steps)
+                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer, noise_scale=noise_scale, loss_all_steps=loss_all_steps, energy_decrease_weight=self.energy_decrease_weight)
+        self.layer_loss = torch.zeros(1, dtype=torch.float32)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
@@ -1115,7 +1131,7 @@ class Transformer(nn.Module):
                 integral=self.integral,
                 project=project,
                 )
-
+        self.layer_loss = self.decoder.layer_loss
         if not self.deploy:
             out_poses = out_poses.flatten(-2)
 

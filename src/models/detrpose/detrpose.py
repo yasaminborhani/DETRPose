@@ -26,6 +26,7 @@ class DETRPose(nn.Module):
         self.backbone = backbone
         self.encoder = encoder
         self.transformer = transformer
+        self.layer_loss = torch.zeros(1, dtype=torch.float32)
 
         def count_params(model):
             trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -76,5 +77,6 @@ class DETRPose(nn.Module):
         feats = self.backbone(samples)
         feats = self.encoder(feats)
         out = self.transformer(feats, targets, samples if self.training else None)
+        self.layer_loss = self.transformer.layer_loss
         return out
 
