@@ -52,7 +52,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             
             with torch.amp.autocast(str(device), enabled=False):
                 loss_dict = criterion(outputs, new_targets)
-                losses = sum(loss_dict.values()) + model.layer_loss
+                losses = sum(loss_dict.values()) + model.module.layer_loss.to(device)
 
             if args.amp:
                 scaler.scale(losses).backward()
