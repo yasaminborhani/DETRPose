@@ -314,6 +314,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
         # self.norm1 = nn.LayerNorm(d_model)
         # gate
         self.gateway = Gate(d_model)
+        self.normalize_energy = normalize_energy
         if normalize_energy:
             self.input_ln_energy = nn.LayerNorm(d_model)
             self.output_ln_energy = nn.LayerNorm(energy_out_dim)
