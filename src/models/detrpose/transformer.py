@@ -661,7 +661,7 @@ class TransformerDecoder(nn.Module):
                 lambda_energy = getattr(self, "energy_decrease_weight", 1e-2)  # tune this
 
                 for i in range(self._resolve_energy_steps(is_training=self.training)):
-                    E_raw = self.energy_head(
+                    E_raw = self.intermediate_energy_layer(
                         tgt_pose=z,
                         tgt_pose_query_pos=pose_query_pos,
                         tgt_pose_reference_points=refpoint_pose_input,
@@ -698,7 +698,7 @@ class TransformerDecoder(nn.Module):
                     else:
                         noise = 0.0
                     z = z - self.energy_step_size * grad_z + noise
-            
+                output = z
 
             output_pose = output[:, :, 1:]
             output_instance = output[:, :, 0]
