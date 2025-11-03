@@ -295,7 +295,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
                  use_modulation=False, use_region_sampling=False, region_kernel_size=1,
                  use_global_context=False, use_grouped_offsets=False, num_groups=1,
                  use_grid_attention=False, grid_num_points=16, use_grid_offsets=False,
-                 use_grid_fusion=True, is_energy=False, energy_in_dim=68, energy_out_dim=1):
+                 use_grid_fusion=True, is_energy=False, energy_in_dim=68, energy_out_dim=1, normalize_energy=False):
         super().__init__()
         # within-instance self-attention
         self.within_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
@@ -314,6 +314,9 @@ class DeformableTransformerDecoderLayer(nn.Module):
         # self.norm1 = nn.LayerNorm(d_model)
         # gate
         self.gateway = Gate(d_model)
+        if normalize_energy:
+            self.input_ln_energy = nn.LayerNorm(d_model)
+            self.output_ln_energy = nn.LayerNorm(energy_out_dim)
         # FFN
         self.use_kan = use_kan
         self.is_energy = is_energy  # if True, this layer replaces EnergyHead
@@ -428,7 +431,11 @@ class DeformableTransformerDecoderLayer(nn.Module):
         tgt_pose = self.forward_FFN(tgt_pose)
         if self.is_energy:
             # tgt_pose shape: (bs, nq, num_kpt, d_model)
+            if self.normalize_energy:
+                tgt_pose = self.input_ln_energy(tgt_pose)
             E = self.energy_reduce(tgt_pose)  # -> (bs, nq, num_kpt, 1)
+            if self.normalize_energy:
+                E = self.output_ln_energy(E)
             return E  # replace EnergyHead output
         else:
             return tgt_pose
@@ -499,6 +506,7 @@ class TransformerDecoder(nn.Module):
                     energy_decrease_weight=0.0,
                     detach_cond_feat = True,
                     intermediate_energy_layer = None,
+                    normalize_energy=False,
 
                     ):
         super().__init__()
@@ -903,6 +911,7 @@ class Transformer(nn.Module):
         loss_all_steps=False,
         energy_decrease_weight=0.0,
         detach_cond_feat = True,
+        normalize_energy=False,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -927,7 +936,7 @@ class Transformer(nn.Module):
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                                           use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
-                                                          is_energy=True, energy_in_dim=energy_in_dim, energy_out_dim=energy_out_dim)
+                                                          is_energy=True, energy_in_dim=energy_in_dim, energy_out_dim=energy_out_dim, normalize_energy=normalize_energy)
         else:
             self.energy_layer = None
         
@@ -939,7 +948,7 @@ class Transformer(nn.Module):
                                                           use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                                           use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
                                                           use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
-                                                          is_energy=True, energy_in_dim=hidden_dim, energy_out_dim=hidden_dim)
+                                                          is_energy=True, energy_in_dim=hidden_dim, energy_out_dim=hidden_dim, normalize_energy=normalize_energy)
         else:
             self.intermediate_energy_layer = None
 
