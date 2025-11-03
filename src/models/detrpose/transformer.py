@@ -488,6 +488,7 @@ class TransformerDecoder(nn.Module):
                     num_body_points=17,
                     # ---- new minimal energy options (kept optional and off by default) ----
                     use_energy_refinement = False,
+                    use_intermediate_energy_refinement = False,
                     energy_steps = 3,
                     energy_step_size = 0.1,
                     energy_hidden = 256,
@@ -497,6 +498,8 @@ class TransformerDecoder(nn.Module):
                     loss_all_steps=False,
                     energy_decrease_weight=0.0,
                     detach_cond_feat = True,
+                    intermediate_energy_layer = None,
+
                     ):
         super().__init__()
         if num_layers > 0:
@@ -515,6 +518,7 @@ class TransformerDecoder(nn.Module):
         self.loss_all_steps = loss_all_steps
         self.energy_decrease_weight = energy_decrease_weight
         self.detach_cond_feat = detach_cond_feat
+        self.use_intermediate_energy_refinement = use_intermediate_energy_refinement
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
@@ -535,6 +539,13 @@ class TransformerDecoder(nn.Module):
             self.energy_head = energy_layer
      
         # -------------------------------------------------------------------------------
+        if self.use_intermediate_energy_refinement:
+            print(">>> Using intermediate energy-based pose refinement")
+            self.intermediate_energy_layer = intermediate_energy_layer
+            self.energy_steps = energy_steps
+            self.energy_step_size = nn.Parameter(torch.tensor([energy_step_size], dtype=torch.float32))
+            # energy head conditions on per-query instance features (hidden_dim) + flattened pose
+            pose_dim = self.num_body_points * 2
 
     def sine_embedding(self, pos_tensor):
         x_embed = pos_tensor[..., 0:1] * self.scale
@@ -622,6 +633,71 @@ class TransformerDecoder(nn.Module):
                 memory_spatial_shapes = spatial_shapes,
             )
             
+            if self.use_intermediate_energy_refinement and layer_id == self.num_layers - 1:
+                
+                # build z
+                z = output
+
+                # ensure z participates in autograd
+                if self.training:
+                    # keep graph if you want higher-order grads through the refinement
+                    z.requires_grad_(True)
+                else:
+                    # during eval we usually don't need grads to flow back into the base network
+                    z = z.detach().requires_grad_(True)
+
+                if self.detach_cond_feat:
+                    condition = tuple(m.detach() for m in memory)
+                else:
+                    # print(">>> Conditioning features not detached for energy refinement")
+                    condition = memory
+
+                # breakpoint()
+                if isinstance(self.energy_steps, DictConfig):
+                    self.energy_steps = OmegaConf.to_container(self.energy_steps, resolve=True)
+
+                energy_reg_loss = torch.zeros(1, device=z.device, dtype=z.dtype)  # accumulates reg term
+                E_prev = None
+                lambda_energy = getattr(self, "energy_decrease_weight", 1e-2)  # tune this
+
+                for i in range(self._resolve_energy_steps(is_training=self.training)):
+                    E_raw = self.energy_head(
+                        tgt_pose=z,
+                        tgt_pose_query_pos=pose_query_pos,
+                        tgt_pose_reference_points=refpoint_pose_input,
+                        attn_mask=attn_mask,
+                        memory=condition,
+                        memory_spatial_shapes=spatial_shapes
+                    )
+
+                    # 1️⃣ Compute a safe energy term (same as your original)
+                    E_neg = -E_raw
+                    E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                    # E_safe = torch.clamp(E_safe, -50, 50)
+
+                    # ---------- NEW: compute per-iteration decrease regulariser ----------
+                    # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
+                    if E_prev is not None:
+                        # stop gradient on previous energy so only E_safe contributes gradients
+                        per_example_reg = torch.relu(E_safe - E_prev.detach())  # shape (batch,)
+                        # aggregate (mean) and weight it
+                        energy_reg_loss = energy_reg_loss + lambda_energy * per_example_reg.mean()
+                    # set previous energy for next iteration
+                    E_prev = E_safe
+                    # --------------------------------------------------------------------
+
+                    # 3️⃣ Compute gradient for z
+                    grad_z = torch.autograd.grad(E_safe.sum(), z, create_graph=self.training)[0]
+
+                    if torch.isnan(grad_z).any():
+                        print("Warning: NaN in grad_z detected!")
+
+                    self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
+                    if self.training:
+                        noise = torch.randn_like(z) * self.noise_scale
+                    else:
+                        noise = 0.0
+                    z = z - self.energy_step_size * grad_z + noise
             
 
             output_pose = output[:, :, 1:]
@@ -815,6 +891,7 @@ class Transformer(nn.Module):
         use_grid_offsets=False,
         use_grid_fusion=True,
         use_energy_refinement = False,
+        use_intermediate_energy_refinement = False,
         energy_steps = 3,
         energy_step_size = 1.0,
         energy_hidden = 256,
@@ -853,14 +930,28 @@ class Transformer(nn.Module):
                                                           is_energy=True, energy_in_dim=energy_in_dim, energy_out_dim=energy_out_dim)
         else:
             self.energy_layer = None
+        
+        if use_intermediate_energy_refinement:
+            print(">>> Initializing intermediate energy-based refinement layer")
+            self.intermediate_energy_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
+                                                          activation, num_feature_levels, nhead,
+                                                          dec_n_points, use_kan=use_kan, kan_grid=kan_grid, use_modulation=use_modulation, 
+                                                          use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
+                                                          use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
+                                                          use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion,
+                                                          is_energy=True, energy_in_dim=hidden_dim, energy_out_dim=hidden_dim)
+        else:
+            self.intermediate_energy_layer = None
 
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers,
                                         return_intermediate=return_intermediate_dec,
                                         hidden_dim=hidden_dim,
-                                        num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
+                                        num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,use_intermediate_energy_refinement=use_intermediate_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
                                         energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer,
-                                         noise_scale=noise_scale, loss_all_steps=loss_all_steps, energy_decrease_weight=self.energy_decrease_weight, detach_cond_feat=detach_cond_feat)
+                                         noise_scale=noise_scale, loss_all_steps=loss_all_steps, 
+                                         energy_decrease_weight=self.energy_decrease_weight, detach_cond_feat=detach_cond_feat,
+                                         intermediate_energy_layer=self.intermediate_energy_layer)
         self.layer_loss = torch.zeros(1, dtype=torch.float32)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
