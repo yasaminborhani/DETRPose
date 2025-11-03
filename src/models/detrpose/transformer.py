@@ -496,6 +496,7 @@ class TransformerDecoder(nn.Module):
                     noise_scale = 0.01,
                     loss_all_steps=False,
                     energy_decrease_weight=0.0,
+                    detach_cond_feat = True,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -513,6 +514,7 @@ class TransformerDecoder(nn.Module):
         self.noise_scale = noise_scale
         self.loss_all_steps = loss_all_steps
         self.energy_decrease_weight = energy_decrease_weight
+        self.detach_cond_feat = detach_cond_feat
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
@@ -673,7 +675,11 @@ class TransformerDecoder(nn.Module):
                         # during eval we usually don't need grads to flow back into the base network
                         z = z.detach().requires_grad_(True)
 
-                    condition = tuple(m.detach() for m in memory)
+                    if self.detach_cond_feat:
+                        condition = tuple(m.detach() for m in memory)
+                    else:
+                        # print(">>> Conditioning features not detached for energy refinement")
+                        condition = memory
 
                     # breakpoint()
                     if isinstance(self.energy_steps, DictConfig):
@@ -696,7 +702,7 @@ class TransformerDecoder(nn.Module):
                         # 1️⃣ Compute a safe energy term (same as your original)
                         E_neg = -E_raw
                         E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
-                        E_safe = torch.clamp(E_safe, -50, 50)
+                        # E_safe = torch.clamp(E_safe, -50, 50)
 
                         # ---------- NEW: compute per-iteration decrease regulariser ----------
                         # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
@@ -819,6 +825,7 @@ class Transformer(nn.Module):
         energy_out_dim=1,
         loss_all_steps=False,
         energy_decrease_weight=0.0,
+        detach_cond_feat = True,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -852,7 +859,8 @@ class Transformer(nn.Module):
                                         hidden_dim=hidden_dim,
                                         num_body_points=num_body_points, use_energy_refinement=use_energy_refinement,
                                         energy_steps=energy_steps, energy_step_size=energy_step_size,
-                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer, noise_scale=noise_scale, loss_all_steps=loss_all_steps, energy_decrease_weight=self.energy_decrease_weight)
+                                        energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer,
+                                         noise_scale=noise_scale, loss_all_steps=loss_all_steps, energy_decrease_weight=self.energy_decrease_weight, detach_cond_feat=detach_cond_feat)
         self.layer_loss = torch.zeros(1, dtype=torch.float32)
         self.hidden_dim = hidden_dim
         self.nhead = nhead

@@ -7,7 +7,7 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_decoder_less"
+training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_regularization_wo_clip_condition_trainable"
 training_params.epochs = 50  
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
@@ -52,7 +52,7 @@ model.encoder.expansion = 0.34
 model.encoder.hidden_dim = 128
 model.encoder.dim_feedforward = 512
 # model.encoder.freeze_network = True  # Freeze the Hybrid Encoder
-model.transformer.num_decoder_layers = 1
+model.transformer.num_decoder_layers = 3
 model.transformer.num_feature_levels = 2
 model.transformer.dim_feedforward = 512
 model.transformer.feat_strides = [16, 32]
@@ -70,13 +70,15 @@ model.transformer.use_grid_offsets = False
 model.transformer.use_grid_fusion = True
 # New settings for energy refinement
 model.transformer.use_energy_refinement = True
-model.transformer.energy_steps = 5
+model.transformer.energy_steps = 3
 model.transformer.energy_step_size = 0.1
 model.transformer.energy_hidden = 256
 model.transformer.energy_n_layers = 4
 model.transformer.noise_scale = 0.0
 model.transformer.energy_out_dim = 68
-# model.transformer.loss_all_steps = True
+model.transformer.loss_all_steps = False
+model.transformer.energy_decrease_weight = 0.05
+model.transformer.detach_cond_feat = False
 
 # model.is_trainable = False
 # model.trainable_energy = True
