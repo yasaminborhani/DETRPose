@@ -309,7 +309,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.cross_attn = MSDeformAttn(d_model, n_levels, n_heads, n_points, use_modulation=use_modulation, 
                                         use_region_sampling=use_region_sampling, region_kernel_size=region_kernel_size,
                                         use_global_context=use_global_context, use_grouped_offsets=use_grouped_offsets, num_groups=num_groups,
-                                        use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion)
+                                        use_grid_attention=use_grid_attention, grid_num_points=grid_num_points, use_grid_offsets=use_grid_offsets, use_grid_fusion=use_grid_fusion, is_energy=is_energy)
         self.dropout1 = nn.Dropout(dropout)
         # self.norm1 = nn.LayerNorm(d_model)
         # gate
@@ -382,7 +382,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
             tgt = tgt + self.dropout3(tgt2)
             tgt = self.norm2(tgt)
         return tgt
-
+    
     def forward(self, 
                 # for tgt
                 tgt_pose: Optional[Tensor],
@@ -416,18 +416,16 @@ class DeformableTransformerDecoderLayer(nn.Module):
             )[0].reshape(bs * num_kpt, nq, d_model)
         tgt_pose = tgt_pose + self.across_dropout(tgt2_pose)
         tgt_pose = self.across_norm(tgt_pose).reshape(bs, num_kpt, nq, d_model).transpose(1, 2) # bs, nq, num_kpts, 2
-            
 
-        if not self.is_energy:
-            # deformable cross-attention
-            tgt2_pose = self.cross_attn(self.with_pos_embed(tgt_pose, tgt_pose_query_pos, self.training).flatten(1, 2),
-                                            tgt_pose_reference_points,
-                                            memory, #.transpose(0, 1), 
-                                            memory_spatial_shapes, 
-                                            ).reshape(bs, nq, num_kpt, d_model)
+        # deformable cross-attention
+        tgt2_pose = self.cross_attn(self.with_pos_embed(tgt_pose, tgt_pose_query_pos, self.training).flatten(1, 2),
+                                        tgt_pose_reference_points,
+                                        memory, #.transpose(0, 1), 
+                                        memory_spatial_shapes, 
+                                        ).reshape(bs, nq, num_kpt, d_model)
 
-    
-            tgt_pose = self.gateway(tgt_pose, self.dropout1(tgt2_pose))
+
+        tgt_pose = self.gateway(tgt_pose, self.dropout1(tgt2_pose))
             
         tgt_pose = self.forward_FFN(tgt_pose)
         if self.is_energy:
@@ -441,52 +439,6 @@ class DeformableTransformerDecoderLayer(nn.Module):
         else:
             return tgt_pose
 
-
-
-# Modified TransformerDecoder with minimal, opt-in energy-based refinement
-# (Everything else in the original loop/logic is preserved; only a few lines
-#  were added to support an optional EnergyHead and inner-loop refinement.)
-
-import math
-from typing import Optional
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
-
-# Minimal EnergyHead used for the refinement (very small MLP)
-class EnergyHead(nn.Module):
-    """
-    Minimal energy function E_theta(feat, z) -> scalar per instance.
-
-    - feat: (bs, nq, C) conditioning features (we will use the per-query instance feature)
-    - z_flat: (bs, nq, P) flattened keypoints (P = num_body_points * 2)
-    returns:
-    - energy: (bs, nq, 1)
-    """
-    def __init__(self, feat_dim: int, pose_dim: int, hidden: int = 256, n_layers: int = 2):
-        super().__init__()
-        layers = []
-        in_dim = feat_dim + pose_dim
-        if n_layers <= 1:
-            layers.append(nn.Linear(in_dim, 1))
-        else:
-            layers.append(nn.Linear(in_dim, hidden))
-            layers.append(nn.ReLU(inplace=True))
-            for _ in range(n_layers - 2):
-                layers.append(nn.Linear(hidden, hidden))
-                layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.Linear(hidden, 1))
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, feat: Tensor, z_flat: Tensor) -> Tensor:
-        # feat: (bs, nq, C), z_flat: (bs, nq, P)
-        x = torch.cat([feat, z_flat], dim=-1)
-        bs, nq, _ = x.shape
-        x = x.view(bs * nq, -1)
-        e = self.net(x)
-        e = e.view(bs, nq, 1)
-        return e
 
 
 class TransformerDecoder(nn.Module):

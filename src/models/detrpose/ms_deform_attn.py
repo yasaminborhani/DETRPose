@@ -9,9 +9,141 @@ from torch import nn
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, constant_
 
+import torch
+import torch.nn.functional as F
+
+def soft_grid_sample(value, grid, align_corners=False):
+    """
+    High-fidelity differentiable reimplementation of F.grid_sample for 2D bilinear interpolation.
+
+    value: (B, C, H, W)
+    grid: (B, Len_q, P, 2), normalized coordinates in [-1, 1]
+    returns: (B, C, Len_q, P)
+    """
+    B, C, H, W = value.shape
+    _, Len_q, P, _ = grid.shape
+
+    # Convert from [-1, 1] to [0, H-1] and [0, W-1]
+    if align_corners:
+        x = ((grid[..., 0] + 1) / 2) * (W - 1)
+        y = ((grid[..., 1] + 1) / 2) * (H - 1)
+    else:
+        x = ((grid[..., 0] + 1) * W - 1) / 2
+        y = ((grid[..., 1] + 1) * H - 1) / 2
+
+    x0 = torch.floor(x).long()
+    y0 = torch.floor(y).long()
+    x1 = x0 + 1
+    y1 = y0 + 1
+
+    # Clip to valid range
+    x0_clipped = x0.clamp(0, W - 1)
+    x1_clipped = x1.clamp(0, W - 1)
+    y0_clipped = y0.clamp(0, H - 1)
+    y1_clipped = y1.clamp(0, H - 1)
+
+    # Compute interpolation weights
+    wa = (x1.float() - x) * (y1.float() - y)
+    wb = (x1.float() - x) * (y - y0.float())
+    wc = (x - x0.float()) * (y1.float() - y)
+    wd = (x - x0.float()) * (y - y0.float())
+
+    # Flatten value for fast gather
+    value_flat = value.reshape(B, C, H * W)
+
+    def gather(b, x_idx, y_idx):
+        idx = (y_idx * W + x_idx).reshape(B, -1)
+        gathered = torch.gather(value_flat, 2, idx.unsqueeze(1).expand(-1, C, -1))
+        return gathered.reshape(B, C, Len_q, P)
+
+    Ia = gather(B, x0_clipped, y0_clipped)
+    Ib = gather(B, x0_clipped, y1_clipped)
+    Ic = gather(B, x1_clipped, y0_clipped)
+    Id = gather(B, x1_clipped, y1_clipped)
+
+    # Weighted sum (broadcasted)
+    out = Ia * wa.unsqueeze(1) + Ib * wb.unsqueeze(1) + Ic * wc.unsqueeze(1) + Id * wd.unsqueeze(1)
+
+    # Zero padding where samples fall outside [-1, 1]
+    mask = ((x >= 0) & (x <= W - 1) & (y >= 0) & (y <= H - 1)).float()
+    out = out * mask.unsqueeze(1)
+
+    return out
+
+
+def bilinear_sample_pytorch(value, sampling_grid, align_corners=False):
+    """
+    Vectorized bilinear sampler written in plain PyTorch.
+    value: (B, C, H, W)
+    sampling_grid: (B, Len_q, P, 2) with coords in [-1, 1] (x, y)
+    returns: (B, C, Len_q, P)
+    """
+    B, C, H, W = value.shape
+    _, Len_q, P, _ = sampling_grid.shape
+
+    # convert normalized [-1,1] coords to pixel coords
+    if align_corners:
+        px = (sampling_grid[..., 0] + 1.0) * 0.5 * (W - 1)  # (B, Len_q, P)
+        py = (sampling_grid[..., 1] + 1.0) * 0.5 * (H - 1)
+    else:
+        # grid_sample's default align_corners=False mapping:
+        px = (sampling_grid[..., 0] + 1.0) * 0.5 * (W - 1)
+        py = (sampling_grid[..., 1] + 1.0) * 0.5 * (H - 1)
+
+    # floor and ceil coords
+    x0 = torch.floor(px).clamp(0, W - 1)
+    x1 = (x0 + 1).clamp(0, W - 1)
+    y0 = torch.floor(py).clamp(0, H - 1)
+    y1 = (y0 + 1).clamp(0, H - 1)
+
+    # fractional part
+    wa = (x1 - px) * (y1 - py)  # top-left weight
+    wb = (x1 - px) * (py - y0)  # bottom-left
+    wc = (px - x0) * (y1 - py)  # top-right
+    wd = (px - x0) * (py - y0)  # bottom-right
+
+    # convert to long indices for gather
+    x0_l = x0.long()
+    x1_l = x1.long()
+    y0_l = y0.long()
+    y1_l = y1.long()
+
+    # flatten spatial dims
+    value_flat = value.view(B, C, H * W)  # (B, C, HW)
+    # compute linear indices
+    idx_a = (y0_l * W + x0_l).reshape(B, -1)
+    idx_b = (y1_l * W + x0_l).reshape(B, -1)
+    idx_c = (y0_l * W + x1_l).reshape(B, -1)
+    idx_d = (y1_l * W + x1_l).reshape(B, -1)
+
+
+    # expand indices to channels for gather
+    # gather needs index shape (B, C, L) when gathering along last dim
+    def gather_by_index(value_flat, idx):
+        # value_flat: (B, C, HW)
+        B, C, HW = value_flat.shape
+        L = idx.shape[1]  # Len_q * P
+        idx_expand = idx.unsqueeze(1).expand(-1, C, -1)  # (B, C, L)
+        gathered = torch.gather(value_flat, 2, idx_expand)  # (B, C, L)
+        return gathered.view(B, C, Len_q, P)  # reshape to (B, C, Len_q, P)
+
+    Ia = gather_by_index(value_flat, idx_a)
+    Ib = gather_by_index(value_flat, idx_b)
+    Ic = gather_by_index(value_flat, idx_c)
+    Id = gather_by_index(value_flat, idx_d)
+
+    # reshape weights to (B, 1, Len_q, P)
+    wa = wa.view(B, 1, Len_q, P)
+    wb = wb.view(B, 1, Len_q, P)
+    wc = wc.view(B, 1, Len_q, P)
+    wd = wd.view(B, 1, Len_q, P)
+
+    out = wa * Ia + wb * Ib + wc * Ic + wd * Id  # (B, C, Len_q, P)
+    return out
+
 
 def ms_deform_attn_core_pytorch(value, value_spatial_shapes, sampling_locations, attention_weights,
-                                sampling_modulation=None, region_kernel_size=1):
+                                sampling_modulation=None, region_kernel_size=1, is_energy=False):
     """
     Core multi-scale deformable attention routine using grid_sample.
     - value: list of per-level tensors; each element shaped (N*Mprime, C_per_sample, H*W)
@@ -38,7 +170,14 @@ def ms_deform_attn_core_pytorch(value, value_spatial_shapes, sampling_locations,
             value_l_ = F.avg_pool2d(value_l_, kernel_size=region_kernel_size, stride=1, padding=pad)
 
         sampling_grid_l_ = sampling_grids[:, :, lid_]  # (N*Mprime, Len_q, P, 2)
-        sampling_value_l_ = F.grid_sample(value_l_, sampling_grid_l_, mode='bilinear', padding_mode='zeros', align_corners=False)
+        # sampling_value_l_ = F.grid_sample(value_l_, sampling_grid_l_, mode='bilinear', padding_mode='zeros', align_corners=False)
+        # sampling_value_l_ = bilinear_sample_pytorch(value_l_, sampling_grid_l_, align_corners=False)
+        if is_energy:
+            sampling_value_l_ = soft_grid_sample(value_l_, sampling_grid_l_, align_corners=False)
+        else:
+            sampling_value_l_ = F.grid_sample(value_l_, sampling_grid_l_, mode='bilinear', padding_mode='zeros', align_corners=False)
+
+
         # sampling_value_l_: (N*Mprime, C, Len_q, P)
         sampling_value_list.append(sampling_value_l_)
 
@@ -61,7 +200,7 @@ class MSDeformAttn(nn.Module):
                  use_global_context=False, use_grouped_offsets=False, num_groups=1,
                  # new grid-attention options:
                  use_grid_attention=False, grid_num_points=16, use_grid_offsets=False,
-                 use_grid_fusion=True):
+                 use_grid_fusion=True, is_energy=False):
         """
         Multi-Scale Deformable Attention with optional branches:
         - local deformable attention (original)
@@ -80,6 +219,7 @@ class MSDeformAttn(nn.Module):
         self.n_levels = n_levels
         self.n_heads = n_heads
         self.n_points = n_points
+        self.is_energy = is_energy
 
         # options previously added
         self.use_modulation = bool(use_modulation)
@@ -299,7 +439,8 @@ class MSDeformAttn(nn.Module):
 
         local_out = ms_deform_attn_core_pytorch(
             new_value, input_spatial_shapes, sampling_locations, attention_weights,
-            sampling_modulation=sampling_modulation, region_kernel_size=(self.region_kernel_size if self.use_region_sampling else 1)
+            sampling_modulation=sampling_modulation, region_kernel_size=(self.region_kernel_size if self.use_region_sampling else 1),
+            is_energy=self.is_energy
         )  # (N, Len_q, d_model)
 
         # ---------- Grid attention branch (optional) ----------
@@ -354,7 +495,8 @@ class MSDeformAttn(nn.Module):
             # Now sample with the same new_value list (reshaped for groups if needed)
             grid_out = ms_deform_attn_core_pytorch(
                 new_value, input_spatial_shapes, grid_sampling_locations, grid_att_w,
-                sampling_modulation=None, region_kernel_size=(self.region_kernel_size if self.use_region_sampling else 1)
+                sampling_modulation=None, region_kernel_size=(self.region_kernel_size if self.use_region_sampling else 1),
+                is_energy=self.is_energy,
             )  # (N, Len_q, d_model)
 
         # ---------- Fuse branches ----------
