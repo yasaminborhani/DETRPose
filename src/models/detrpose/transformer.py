@@ -636,7 +636,7 @@ class TransformerDecoder(nn.Module):
                     # 1️⃣ Compute a safe energy term (same as your original)
                     # E_neg = -E_raw
                     # E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
-                    E_safe = E_raw.squeeze(-1)  # shape: (batch, num_queries)
+                    E_safe = E_safe.view(E_safe.shape[0], -1).mean(dim=1)
 
                     # E_safe = torch.clamp(E_safe, -50, 50)
                     # print("Intermediate E_raw abs:", E_raw.abs().mean())
@@ -747,10 +747,10 @@ class TransformerDecoder(nn.Module):
                         )
 
                         # 1️⃣ Compute a safe energy term (same as your original)
-                        # E_neg = -E_raw
-                        # E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                        E_neg = -E_raw
+                        E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
                         # E_safe = torch.clamp(E_safe, -50, 50)
-                        E_safe = E_raw.squeeze(-1)
+                        E_safe = E_safe.view(E_safe.shape[0], -1).mean(dim=1)
 
                         # ---------- NEW: compute per-iteration decrease regulariser ----------
                         # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
