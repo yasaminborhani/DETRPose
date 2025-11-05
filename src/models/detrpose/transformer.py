@@ -326,7 +326,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
 
         if self.is_energy:
             self.energy_expand = nn.Linear(energy_in_dim, d_model)
-            self.energy_reduce = nn.Linear(d_model, self.energy_out_dim)
+            self.energy_reduce = nn.Linear(d_model, self.energy_out_dim, bias=False)
     
 
 
@@ -747,10 +747,13 @@ class TransformerDecoder(nn.Module):
                         )
 
                         # 1️⃣ Compute a safe energy term (same as your original)
-                        E_neg = -E_raw
-                        E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                        # E_neg = -E_raw
+                        # E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                        # breakpoint()
                         # E_safe = torch.clamp(E_safe, -50, 50)
-                        E_safe = E_safe.view(E_safe.shape[0], -1).mean(dim=1)
+                        # E_safe = E_raw
+                        E_safe = (E_raw * 1.0).view(E_raw.shape[0], -1).mean(dim=1)
+
 
                         # ---------- NEW: compute per-iteration decrease regulariser ----------
                         # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
