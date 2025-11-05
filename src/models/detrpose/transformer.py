@@ -19,7 +19,7 @@ from omegaconf import OmegaConf, DictConfig
 
 from .ms_deform_attn import MSDeformAttn
 from .dn_component import prepare_for_cdn, dn_post_process
-from .utils import gen_encoder_output_proposals, inverse_sigmoid, MLP, _get_activation_fn
+from .utils import gen_encoder_output_proposals, inverse_sigmoid, MLP, _get_activation_fn, RMSNorm
 
 from ...misc.keypoint_ops import keypoint_xyzxyz_to_xyxyzz
 
@@ -316,8 +316,9 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.gateway = Gate(d_model)
         self.normalize_energy = normalize_energy
         if normalize_energy:
-            self.input_ln_energy = nn.LayerNorm(d_model)
-            self.output_ln_energy = nn.LayerNorm(energy_out_dim)
+            self.input_n_energy  = RMSNorm(d_model)
+            # self.input_ln_energy = nn.LayerNorm(d_model)
+            # self.output_ln_energy = nn.LayerNorm(energy_out_dim)
         # FFN
         self.use_kan = use_kan
         self.is_energy = is_energy  # if True, this layer replaces EnergyHead
@@ -431,10 +432,11 @@ class DeformableTransformerDecoderLayer(nn.Module):
         if self.is_energy:
             # tgt_pose shape: (bs, nq, num_kpt, d_model)
             if self.normalize_energy:
-                tgt_pose = self.input_ln_energy(tgt_pose)
+                # tgt_pose = self.input_ln_energy(tgt_pose)
+                tgt_pose = self.input_n_energy(tgt_pose)
             E = self.energy_reduce(tgt_pose)  # -> (bs, nq, num_kpt, 1)
-            if self.normalize_energy:
-                E = self.output_ln_energy(E)
+            # if self.normalize_energy:
+            #     E = self.output_ln_energy(E)
             return E  # replace EnergyHead output
         else:
             return tgt_pose
