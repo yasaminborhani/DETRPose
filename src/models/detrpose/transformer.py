@@ -632,9 +632,14 @@ class TransformerDecoder(nn.Module):
                     )
 
                     # 1️⃣ Compute a safe energy term (same as your original)
-                    E_neg = -E_raw
-                    E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                    # E_neg = -E_raw
+                    # E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                    E_safe = E_raw.squeeze(-1)  # shape: (batch, num_queries)
+
                     # E_safe = torch.clamp(E_safe, -50, 50)
+                    # print("Intermediate E_raw abs:", E_raw.abs().mean())
+                    # print("Intermediate E_raw:", E_raw.mean())
+                    # print("Intermediate E_safe:", E_safe.abs().mean())
 
                     # ---------- NEW: compute per-iteration decrease regulariser ----------
                     # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
@@ -649,6 +654,9 @@ class TransformerDecoder(nn.Module):
 
                     # 3️⃣ Compute gradient for z
                     grad_z = torch.autograd.grad(E_safe.sum(), z, create_graph=self.training)[0]
+                    # print("Intermediate grad_z abs:", grad_z.abs().mean())
+                    # print("Intermediate grad_z sum:", grad_z.sum())
+                    # print("\n \n")
 
                     if torch.isnan(grad_z).any():
                         print("Warning: NaN in grad_z detected!")
@@ -737,9 +745,10 @@ class TransformerDecoder(nn.Module):
                         )
 
                         # 1️⃣ Compute a safe energy term (same as your original)
-                        E_neg = -E_raw
-                        E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
+                        # E_neg = -E_raw
+                        # E_safe = torch.logsumexp(E_neg.view(E_neg.shape[0], -1), dim=1)  # shape: (batch,)
                         # E_safe = torch.clamp(E_safe, -50, 50)
+                        E_safe = E_raw.squeeze(-1)
 
                         # ---------- NEW: compute per-iteration decrease regulariser ----------
                         # reg_i = ReLU( E_t - stop_gradient(E_{t-1}) )  (per-example)
