@@ -713,7 +713,10 @@ class TransformerDecoder(nn.Module):
                         ),
                         dim=-2
                     )
-
+                    if self.training:
+                        noise = torch.randn_like(z) * self.noise_scale
+                    else:
+                        noise = 0.0
                     # ensure z participates in autograd
                     if self.training:
                         # keep graph if you want higher-order grads through the refinement
@@ -780,11 +783,7 @@ class TransformerDecoder(nn.Module):
                             print("Warning: NaN in grad_z detected!")
 
                         self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
-                        if self.training:
-                            noise = torch.randn_like(z) * self.noise_scale
-                        else:
-                            noise = 0.0
-                        z = z - self.energy_step_size * grad_z + noise
+                        z = z - self.energy_step_size * grad_z
 
                         if self.loss_all_steps and i < self._resolve_energy_steps(is_training=self.training) - 1:
                             # Re-extract components after each refinement step for loss computation
