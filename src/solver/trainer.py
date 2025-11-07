@@ -355,7 +355,10 @@ class Trainer(object):
             if not(args.eval or args.test) and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
                 import copy
                 p_groups = copy.deepcopy(self.optimizer.param_groups)
-                self.optimizer.load_state_dict(checkpoint['optimizer'])
+                try:
+                    self.optimizer.load_state_dict(checkpoint['optimizer'])
+                except:
+                    print("Warning: the optimizer state dict could not be loaded properly. Optimizer parameters are re-initialized.")
                 for pg, pg_old in zip(self.optimizer.param_groups, p_groups):
                     pg['lr'] = pg_old['lr']
                     pg['initial_lr'] = pg_old['initial_lr']

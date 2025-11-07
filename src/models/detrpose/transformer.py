@@ -462,7 +462,7 @@ class TransformerDecoder(nn.Module):
                     detach_cond_feat = True,
                     intermediate_energy_layer = None,
                     normalize_energy=False,
-
+                    debug=False,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -482,6 +482,7 @@ class TransformerDecoder(nn.Module):
         self.energy_decrease_weight = energy_decrease_weight
         self.detach_cond_feat = detach_cond_feat
         self.use_intermediate_energy_refinement = use_intermediate_energy_refinement
+        self.debug = debug
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
@@ -595,6 +596,7 @@ class TransformerDecoder(nn.Module):
                 memory = memory,
                 memory_spatial_shapes = spatial_shapes,
             )
+
             
             if self.use_intermediate_energy_refinement and layer_id == self.num_layers - 1:
                 
@@ -624,6 +626,28 @@ class TransformerDecoder(nn.Module):
                 lambda_energy = getattr(self, "energy_decrease_weight", 1e-2)  # tune this
 
                 for i in range(self._resolve_energy_steps(is_training=self.training)):
+                    if self.debug:
+                        # right before calling energy_head
+                        z = output
+                        if self.detach_cond_feat:
+                            condition = tuple(m.detach() for m in memory)
+                        else:
+                            # print(">>> Conditioning features not detached for energy refinement")
+                            condition = memory
+                        z_test = z.clone().detach().requires_grad_(True)
+                        E_raw = self.intermediate_energy_layer(
+                        tgt_pose=z_test,
+                        tgt_pose_query_pos=pose_query_pos,
+                        tgt_pose_reference_points=refpoint_pose_input,
+                        attn_mask=attn_mask,
+                        memory=condition,
+                        memory_spatial_shapes=spatial_shapes
+                        )
+                        E_safe = E_raw.view(E_raw.shape[0], -1).mean(dim=1).sum()
+                        g = torch.autograd.grad(E_safe, z_test, create_graph=False)[0]
+                        print("E_safe mean:", float(E_safe.item()), "grad mean:", float(g.abs().mean().item()), "grad max:", float(g.abs().max().item()))
+                        breakpoint()
+                    
                     E_raw = self.intermediate_energy_layer(
                         tgt_pose=z,
                         tgt_pose_query_pos=pose_query_pos,
@@ -664,11 +688,7 @@ class TransformerDecoder(nn.Module):
                         print("Warning: NaN in grad_z detected!")
 
                     self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
-                    if self.training:
-                        noise = torch.randn_like(z) * self.noise_scale
-                    else:
-                        noise = 0.0
-                    z = z - self.energy_step_size * grad_z + noise
+                    z = z - self.energy_step_size * E_raw
                 output = z
 
             output_pose = output[:, :, 1:]
@@ -740,6 +760,67 @@ class TransformerDecoder(nn.Module):
                     lambda_energy = getattr(self, "energy_decrease_weight", 1e-2)  # tune this
 
                     for i in range(self._resolve_energy_steps(is_training=self.training)):
+                        if self.debug:
+                            # right before calling energy_head
+                            z = (z - z.mean(dim=-1, keepdim=True)) / (z.std(dim=-1, keepdim=True) + 1e-6)
+
+
+                            print("Intermediate z abs:", z.abs().mean())
+                            print("Intermediate z:", z.mean())
+                            # print("Intermediate z:", z.abs().mean())
+                            E_raw = self.energy_head(
+                            tgt_pose=z,
+                            tgt_pose_query_pos=pose_query_pos,
+                            tgt_pose_reference_points=refpoint_pose_input,
+                            attn_mask=attn_mask,
+                            memory=condition,
+                            memory_spatial_shapes=spatial_shapes
+                            )
+                            E_safe = E_raw.view(E_raw.shape[0], -1).mean(dim=1).sum()
+                            print("Intermediate E_raw abs:", E_raw.abs().mean())
+                            print("Intermediate E_raw:", E_raw.mean())
+                            g = torch.autograd.grad(E_safe, z, create_graph=False)[0]
+                            print("E_safe mean:", float(E_safe.item()), "grad mean:", float(g.abs().mean().item()), "grad max:", float(g.abs().max().item()))
+
+                            z = z + 100.0 * torch.randn_like(z)  # perturb z for testing
+                            print("Intermediate z abs:", z.abs().mean())
+                            print("Intermediate z:", z.mean())
+                            # print("Intermediate z:", z.abs().mean())
+                            E_raw = self.energy_head(
+                            tgt_pose=z,
+                            tgt_pose_query_pos=pose_query_pos,
+                            tgt_pose_reference_points=refpoint_pose_input,
+                            attn_mask=attn_mask,
+                            memory=condition,
+                            memory_spatial_shapes=spatial_shapes
+                            )
+                            E_safe = E_raw.view(E_raw.shape[0], -1).mean(dim=1).sum()
+                            print("Intermediate E_raw abs:", E_raw.abs().mean())
+                            print("Intermediate E_raw:", E_raw.mean())
+                            g = torch.autograd.grad(E_safe, z, create_graph=False)[0]
+                            print("E_safe mean:", float(E_safe.item()), "grad mean:", float(g.abs().mean().item()), "grad max:", float(g.abs().max().item()))
+
+
+                            z = z - 200.0 * torch.randn_like(z)  # perturb z for testing
+                            print("Intermediate z abs:", z.abs().mean())
+                            print("Intermediate z:", z.mean())
+                            # print("Intermediate z:", z.abs().mean())
+                            E_raw = self.energy_head(
+                            tgt_pose=z,
+                            tgt_pose_query_pos=pose_query_pos,
+                            tgt_pose_reference_points=refpoint_pose_input,
+                            attn_mask=attn_mask,
+                            memory=condition,
+                            memory_spatial_shapes=spatial_shapes
+                            )
+                            E_safe = E_raw.view(E_raw.shape[0], -1).mean(dim=1).sum()
+                            print("Intermediate E_raw abs:", E_raw.abs().mean())
+                            print("Intermediate E_raw:", E_raw.mean())
+                            g = torch.autograd.grad(E_safe, z, create_graph=False)[0]
+                            print("E_safe mean:", float(E_safe.item()), "grad mean:", float(g.abs().mean().item()), "grad max:", float(g.abs().max().item()))
+
+
+                            breakpoint()
                         E_raw = self.energy_head(
                             tgt_pose=z,
                             tgt_pose_query_pos=pose_query_pos,
@@ -783,7 +864,7 @@ class TransformerDecoder(nn.Module):
                             print("Warning: NaN in grad_z detected!")
 
                         self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
-                        z = z - self.energy_step_size * grad_z
+                        z = z - self.energy_step_size * E_raw
 
                         if self.loss_all_steps and i < self._resolve_energy_steps(is_training=self.training) - 1:
                             # Re-extract components after each refinement step for loss computation
@@ -885,6 +966,7 @@ class Transformer(nn.Module):
         energy_decrease_weight=0.0,
         detach_cond_feat = True,
         normalize_energy=False,
+        debug=False,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -933,7 +1015,7 @@ class Transformer(nn.Module):
                                         energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer,
                                          noise_scale=noise_scale, loss_all_steps=loss_all_steps, 
                                          energy_decrease_weight=self.energy_decrease_weight, detach_cond_feat=detach_cond_feat,
-                                         intermediate_energy_layer=self.intermediate_energy_layer)
+                                         intermediate_energy_layer=self.intermediate_energy_layer, debug=debug)
         self.layer_loss = torch.zeros(1, dtype=torch.float32)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
