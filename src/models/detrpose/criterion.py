@@ -60,7 +60,9 @@ class Criterion(nn.Module):
         assert 'pred_keypoints' in outputs
 
         # Get keypoints
+        # print("src_keypoints loss_vfl shape before idx", outputs['pred_keypoints'].shape)
         src_keypoints = outputs['pred_keypoints'][idx] # xyxyvv
+        # print("src_keypoints loss_vfl shape after idx", src_keypoints.shape)
         Z_pred = src_keypoints[:, 0:(self.num_body_points * 2)]
         targets_keypoints = torch.cat([t['keypoints'][i] for t, (_, i) in zip(targets, indices)], dim=0)
         targets_area = torch.cat([t['area'][i] for t, (_, i) in zip(targets, indices)], dim=0)
@@ -195,7 +197,9 @@ class Criterion(nn.Module):
 
     def loss_keypoints(self, outputs, targets, indices, num_boxes):
         idx = self._get_src_permutation_idx(indices)
+        # print("src_keypoints loss_keypoints before idx shape", outputs['pred_keypoints'].shape)
         src_keypoints = outputs['pred_keypoints'][idx] # xyxyvv
+        # print("src_keypoints loss_keypoints after idx shape", src_keypoints.shape)
 
         if len(src_keypoints) == 0:
             device = outputs["pred_logits"].device

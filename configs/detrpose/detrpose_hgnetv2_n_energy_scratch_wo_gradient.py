@@ -7,7 +7,7 @@ from src.misc.get_param_dicts import get_optim_params
 
 from torch import optim
 
-training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_scratch"
+training_params.output_dir =  "output/detrpose_hgnetv2_n_energy_scratch_wo_gradient"
 training_params.epochs = 160 # 96 + 4 
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
@@ -72,7 +72,6 @@ model.transformer.energy_step_size = 0.1
 model.transformer.energy_hidden = 256
 model.transformer.energy_n_layers = 4
 model.transformer.noise_scale = 0.0
-model.transformer.grad_energy = True
 
 dataset_train.dataset.transforms.policy = {
     'name': 'stop_epoch',

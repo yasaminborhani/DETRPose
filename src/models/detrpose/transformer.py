@@ -463,6 +463,7 @@ class TransformerDecoder(nn.Module):
                     intermediate_energy_layer = None,
                     normalize_energy=False,
                     debug=False,
+                    grad_energy=False,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -483,6 +484,7 @@ class TransformerDecoder(nn.Module):
         self.detach_cond_feat = detach_cond_feat
         self.use_intermediate_energy_refinement = use_intermediate_energy_refinement
         self.debug = debug
+        self.grad_energy = grad_energy
 
         # for sin embedding
         dim_t = torch.arange(hidden_dim // 2, dtype=torch.float32)
@@ -688,7 +690,10 @@ class TransformerDecoder(nn.Module):
                         print("Warning: NaN in grad_z detected!")
 
                     self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
-                    z = z - self.energy_step_size * E_raw
+                    if self.grad_energy:
+                        z = z - self.energy_step_size * grad_z
+                    else:
+                        z = z - self.energy_step_size * E_raw
                 output = z
 
             output_pose = output[:, :, 1:]
@@ -837,7 +842,7 @@ class TransformerDecoder(nn.Module):
                         # E_safe = torch.clamp(E_safe, -50, 50)
                         # E_safe = E_raw
                         E_safe = (E_raw * 1.0).view(E_raw.shape[0], -1).mean(dim=1)
-
+                        # print("E_raw shape:", E_raw.shape)
                         # print("Intermediate E_raw abs:", E_raw.abs().mean())
                         # print("Intermediate E_raw:", E_raw.mean())
                         # print("Intermediate E_safe:", E_safe.abs().mean())
@@ -864,7 +869,10 @@ class TransformerDecoder(nn.Module):
                             print("Warning: NaN in grad_z detected!")
 
                         self.energy_step_size.data = self.energy_step_size.data.to(dtype=z.dtype, device=z.device)
-                        z = z - self.energy_step_size * E_raw
+                        if self.grad_energy:
+                            z = z - self.energy_step_size * grad_z
+                        else:
+                            z = z - self.energy_step_size * E_raw
 
                         if self.loss_all_steps and i < self._resolve_energy_steps(is_training=self.training) - 1:
                             # Re-extract components after each refinement step for loss computation
@@ -967,6 +975,7 @@ class Transformer(nn.Module):
         detach_cond_feat = True,
         normalize_energy=False,
         debug=False,
+        grad_energy=False,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -1015,7 +1024,7 @@ class Transformer(nn.Module):
                                         energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer,
                                          noise_scale=noise_scale, loss_all_steps=loss_all_steps, 
                                          energy_decrease_weight=self.energy_decrease_weight, detach_cond_feat=detach_cond_feat,
-                                         intermediate_energy_layer=self.intermediate_energy_layer, debug=debug)
+                                         intermediate_energy_layer=self.intermediate_energy_layer, debug=debug, grad_energy=grad_energy)
         self.layer_loss = torch.zeros(1, dtype=torch.float32)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
