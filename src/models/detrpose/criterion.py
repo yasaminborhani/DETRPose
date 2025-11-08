@@ -87,6 +87,8 @@ class Criterion(nn.Module):
         weight = self.focal_alpha * pred_score.pow(self.gamma) * (1 - target) + target_score
         
         loss = F.binary_cross_entropy_with_logits(src_logits, target_score, weight=weight, reduction='none')
+        if 'z_logit' in outputs:
+            loss = loss + (loss.detach() - outputs['z_logit'][idx])**2.0
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {'loss_vfl': loss}
 
@@ -200,7 +202,8 @@ class Criterion(nn.Module):
         # print("src_keypoints loss_keypoints before idx shape", outputs['pred_keypoints'].shape)
         src_keypoints = outputs['pred_keypoints'][idx] # xyxyvv
         # print("src_keypoints loss_keypoints after idx shape", src_keypoints.shape)
-
+        if 'z_out_poses' in outputs:
+            z_out_poses = outputs['z_out_poses'][idx]
         if len(src_keypoints) == 0:
             device = outputs["pred_logits"].device
             losses = {
@@ -217,8 +220,12 @@ class Criterion(nn.Module):
         pose_loss = F.l1_loss(Z_pred, Z_gt, reduction='none')
         pose_loss = pose_loss * V_gt.repeat_interleave(2, dim=1)
         losses = {}
-        losses['loss_keypoints'] = pose_loss.sum() / num_boxes        
+        losses['loss_keypoints'] = pose_loss.sum() / num_boxes    
+        if 'z_out_poses' in outputs:
+                losses['loss_keypoints'] += ((pose_loss.detach()-z_out_poses)**2.0).sum() / num_boxes 
         losses['loss_oks'] = oks_loss.sum() / num_boxes
+        if 'z_out_poses' in outputs:
+                losses['loss_oks'] += ((oks_loss.detach()-z_out_poses)**2.0).sum() / num_boxes
         return losses
 
     @torch.no_grad()

@@ -464,6 +464,7 @@ class TransformerDecoder(nn.Module):
                     normalize_energy=False,
                     debug=False,
                     grad_energy=False,
+                    train_energy_by_loss=False,
                     ):
         super().__init__()
         if num_layers > 0:
@@ -492,6 +493,7 @@ class TransformerDecoder(nn.Module):
         self.register_buffer('dim_t', dim_t)
         self.scale = 2 * math.pi
         self.layer_loss = torch.zeros(1, dtype=torch.float32)
+        self.train_energy_by_loss = train_energy_by_loss
 
         # -------------------- energy refinement attributes (minimal) --------------------
         self.use_energy_refinement = use_energy_refinement
@@ -883,11 +885,18 @@ class TransformerDecoder(nn.Module):
                             dec_out_poses.append(refpoint_pose_without_center)
                             dec_out_pred_corners.append(pred_corners)
                             dec_out_refs.append(ref_pose_initial)
-                        
+                        if self.training and self.train_energy_by_loss:
+                            break
                         # breakpoint()
-                    pred_corners = z[..., :-1, :n_pred_corners]
-                    refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
-                    logit = z[..., -1, 0:2]
+                    if not (self.training and self.train_energy_by_loss):
+                        pred_corners = z[..., :-1, :n_pred_corners]
+                        refpoint_pose_without_center = z[..., :-1, n_pred_corners:]
+                        logit = z[..., -1, 0:2]
+                    elif self.train_energy_by_loss and self.training:
+                        self.z_pred_corners = torch.stack([E_raw[..., :-1, :n_pred_corners]])
+                        self.z_refpoint_pose_without_center = torch.stack([E_raw[..., :-1, n_pred_corners:]])
+                        self.z_logit = torch.stack([E_raw[..., -1, 0:2]])
+
                     # breakpoint()
                     self.layer_loss = energy_reg_loss
 
@@ -976,6 +985,7 @@ class Transformer(nn.Module):
         normalize_energy=False,
         debug=False,
         grad_energy=False,
+        train_energy_by_loss=False,
         ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -984,6 +994,7 @@ class Transformer(nn.Module):
         self.num_classes = num_classes
         self.aux_loss = aux_loss
         self.energy_decrease_weight = energy_decrease_weight
+        self.train_energy_by_loss = train_energy_by_loss
         
    
         decoder_layer = DeformableTransformerDecoderLayer(hidden_dim, dim_feedforward, dropout,
@@ -1024,7 +1035,7 @@ class Transformer(nn.Module):
                                         energy_hidden=energy_hidden, energy_n_layers=energy_n_layers, energy_layer=self.energy_layer,
                                          noise_scale=noise_scale, loss_all_steps=loss_all_steps, 
                                          energy_decrease_weight=self.energy_decrease_weight, detach_cond_feat=detach_cond_feat,
-                                         intermediate_energy_layer=self.intermediate_energy_layer, debug=debug, grad_energy=grad_energy)
+                                         intermediate_energy_layer=self.intermediate_energy_layer, debug=debug, grad_energy=grad_energy, train_energy_by_loss=train_energy_by_loss)
         self.layer_loss = torch.zeros(1, dtype=torch.float32)
         self.hidden_dim = hidden_dim
         self.nhead = nhead
@@ -1304,8 +1315,18 @@ class Transformer(nn.Module):
                 project=project,
                 )
         self.layer_loss = self.decoder.layer_loss
+        
+
         if not self.deploy:
             out_poses = out_poses.flatten(-2)
+            if self.train_energy_by_loss:
+                z_pred_corners = self.decoder.z_pred_corners 
+                z_refpoint_pose_without_center = self.decoder.z_refpoint_pose_without_center.flatten(-2) 
+                z_logit = self.decoder.z_logit
+        elif self.training and self.train_energy_by_loss:
+            z_pred_corners = self.decoder.z_pred_corners 
+            z_refpoint_pose_without_center = self.decoder.z_refpoint_pose_without_center.flatten(-2) 
+            z_logit = self.decoder.z_logit
 
         if self.training and dn_meta is not None:
             # flattenting (L, bs, nq, np, 2) -> (L, bs, nq, np * 2)
@@ -1320,6 +1341,10 @@ class Transformer(nn.Module):
             dn_out_pre_poses, out_pre_poses = torch.split(out_pre_poses,[dn_meta['pad_size'], self.num_queries], dim=1)
             dn_out_pre_scores, out_pre_scores = torch.split(out_pre_scores, [dn_meta['pad_size'], self.num_queries], dim=1)
 
+            if self.train_energy_by_loss:
+                _, z_out_poses = torch.split(z_refpoint_pose_without_center,[dn_meta['pad_size'], self.num_queries], dim=2)
+                _, z_logit = torch.split(z_logit, [dn_meta['pad_size'], self.num_queries], dim=2)
+                _, z_pred_corners = torch.split(z_pred_corners, [dn_meta['pad_size'], self.num_queries], dim=2)
         out = {'pred_logits': out_logits[-1], 'pred_keypoints': out_poses[-1]}
 
         if self.training and self.aux_loss:
@@ -1330,6 +1355,10 @@ class Transformer(nn.Module):
                 "reg_scale": self.reg_scale,
                 'reg_max': self.reg_max
                 })
+            if self.train_energy_by_loss:
+                out.update({'z_out_poses':z_out_poses,
+                            'z_logit':z_logit,
+                            'z_pred_corners':z_pred_corners})
 
             out['aux_outputs'] = self._set_aux_loss2(
                 out_logits[:-1], 
